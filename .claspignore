@@ -1,0 +1,17 @@
+﻿# Exclude from clasp push (Apps Script deployment)
+.git/**
+.github/**
+docs/**
+tools/**
+node_modules/**
+*.md
+package.json
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+VERSION
+.gitignore
+.claspignore
+.clasp.json.example
+*.log
+.env*

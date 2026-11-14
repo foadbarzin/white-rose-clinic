@@ -1,0 +1,338 @@
+﻿<script>
+(function(){
+  var state = {
+    token: sessionStorage.getItem('wrc_token') || '',
+    user: null,
+    route: 'dashboard',
+    cache: {},
+    loading: false
+  };
+
+  function $(sel, root){ return (root||document).querySelector(sel); }
+  function $all(sel, root){ return Array.prototype.slice.call((root||document).querySelectorAll(sel)); }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function fmtMoney(n){ n = Number(n||0); if(isNaN(n)) n=0; return n.toLocaleString('fa-IR') + ' تومان'; }
+  function fmtNum(n){ n=Number(n||0); if(isNaN(n)) n=0; return n.toLocaleString('fa-IR'); }
+  function badge(text, type){ return '<span class="badge '+(type||'')+'">'+esc(text)+'</span>'; }
+  function todayIso(){ var d=new Date(); var y=d.getFullYear(),m=('0'+(d.getMonth()+1)).slice(-2),da=('0'+d.getDate()).slice(-2); return y+'-'+m+'-'+da; }
+
+  function api(action, payload){
+    return new Promise(function(resolve, reject){
+      google.script.run
+        .withSuccessHandler(function(res){
+          if(res && res.ok) resolve(res.data);
+          else reject(res && res.error ? res.error : {message:'خطای نامشخص'});
+        })
+        .withFailureHandler(function(err){
+          reject({code:'CLIENT', message: (err && err.message) ? err.message : 'خطا در ارتباط با سرور'});
+        })
+        .apiCall(action, payload || {}, state.token || '');
+    });
+  }
+
+  function setToken(t){ state.token = t||''; if(t) sessionStorage.setItem('wrc_token', t); else sessionStorage.removeItem('wrc_token'); }
+
+  function toast(msg, type){
+    var el = $('#toast'); if(!el){ el=document.createElement('div'); el.id='toast'; el.style.position='fixed'; el.style.bottom='16px'; el.style.left='16px'; el.style.zIndex='100'; document.body.appendChild(el); }
+    var item = document.createElement('div'); item.className='alert '+(type||'info'); item.style.minWidth='220px'; item.style.marginTop='8px'; item.textContent=msg; el.appendChild(item);
+    setTimeout(function(){ try{el.removeChild(item);}catch(e){} }, 3500);
+  }
+
+  var routes = [
+    {id:'dashboard', title:'داشبورد', roles:['admin','operator','doctor']},
+    {id:'customers', title:'مشتریان', roles:['admin','operator','doctor']},
+    {id:'doctors', title:'پزشکان', roles:['admin','operator']},
+    {id:'operators', title:'اپراتورها', roles:['admin','operator']},
+    {id:'services', title:'خدمات', roles:['admin','operator']},
+    {id:'invoices', title:'فاکتورها', roles:['admin','operator','doctor']},
+    {id:'expenses', title:'هزینه‌ها', roles:['admin','operator']},
+    {id:'revenue', title:'درآمدهای متفرقه', roles:['admin']},
+    {id:'commissions', title:'پورسانت‌ها', roles:['admin','doctor']},
+    {id:'commissionRules', title:'قواعد پورسانت', roles:['admin']},
+    {id:'reports', title:'گزارش‌ها', roles:['admin','operator']},
+    {id:'users', title:'کاربران', roles:['admin']},
+    {id:'settings', title:'تنظیمات', roles:['admin']}
+  ];
+
+  function allowed(routeId){
+    var r = routes.filter(function(x){return x.id===routeId;})[0];
+    if(!r || !state.user) return false;
+    return r.roles.indexOf(state.user.role) >= 0;
+  }
+  function render(){
+    var app = $('#app');
+    if(!state.token || !state.user){ renderLogin(app); return; }
+    renderShell(app);
+  }
+
+  function renderLogin(app){
+    app.innerHTML =
+      '<div class="login-wrap"><div class="login-card">'+
+      '<div class="login-brand"><div class="logo"><?!= include("assets/logo"); ?></div><h1>ROSE SEFID BEAUTY CLINIC</h1><p>سامانه مدیریت کلینیک رز سفید</p></div>'+
+      '<div id="loginAlert"></div>'+
+      '<div class="form-group"><label>نام کاربری</label><input id="loginUser" autocomplete="username"></div>'+
+      '<div class="form-group"><label>رمز عبور</label><input id="loginPass" type="password" autocomplete="current-password"></div>'+
+      '<div class="row"><button class="btn gold" id="loginBtn">ورود</button><span class="spacer"></span></div>'+
+      '<hr class="sep"><div class="small muted">راه‌اندازی اولیه (فقط در صورت نبود مدیر فعال):</div>'+
+      '<div class="form-group"><label>نام کاربری مدیر</label><input id="bootUser"></div>'+
+      '<div class="form-group"><label>رمز عبور مدیر</label><input id="bootPass" type="password"></div>'+
+      '<div class="form-group"><label>نام نمایشی</label><input id="bootName" value="مدیر سیستم"></div>'+
+      '<button class="btn secondary sm" id="bootBtn">ایجاد مدیر اولیه</button>'+
+      '</div></div>';
+    $('#loginBtn').onclick = doLogin;
+    $('#bootBtn').onclick = doBootstrap;
+  }
+
+  function renderShell(app){
+    var navHtml = routes.filter(function(r){ return allowed(r.id); }).map(function(r){
+      return '<button data-route="'+r.id+'" class="'+(state.route===r.id?'active':'')+'">'+esc(r.title)+'</button>';
+    }).join('');
+    app.innerHTML =
+      '<div class="app-shell">'+
+        '<aside class="sidebar">'+
+          '<div class="brand"><div class="logo"><?!= include("assets/logo"); ?></div><div><div class="title">ROSE SEFID</div><div class="subtitle">BEAUTY CLINIC</div></div></div>'+
+          '<nav class="nav">'+navHtml+'</nav>'+
+          '<div class="sidebar-footer"><div>'+esc(state.user.display_name||state.user.username)+'</div><div class="muted small">'+esc(roleLabel(state.user.role))+'</div><button class="btn secondary sm" id="logoutBtn" style="margin-top:8px;width:100%">خروج</button></div>'+
+        '</aside>'+
+        '<main class="main">'+
+          '<div class="topbar"><div class="page-title" id="pageTitle"></div><div class="user"><span>'+esc(state.user.username)+'</span></div></div>'+
+          '<div class="content" id="content"><div class="panel">در حال بارگذاری...</div></div>'+
+        '</main>'+
+      '</div>';
+    $all('.nav button[data-route]').forEach(function(b){ b.onclick = function(){ navigate(b.getAttribute('data-route')); }; });
+    $('#logoutBtn').onclick = doLogout;
+    navigate(state.route || 'dashboard');
+  }
+
+  function roleLabel(r){ return r==='admin'?'مدیر':(r==='operator'?'اپراتور':(r==='doctor'?'پزشک':r)); }
+  function navigate(routeId){ if(!allowed(routeId)) routeId='dashboard'; state.route = routeId; $all('.nav button[data-route]').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-route')===routeId); }); var r=routes.filter(function(x){return x.id===routeId;})[0]; if($('#pageTitle')) $('#pageTitle').textContent = r ? r.title : ''; loadRoute(routeId); }
+
+  function doLogin(){
+    var u=$('#loginUser').value.trim(), p=$('#loginPass').value;
+    var alert=$('#loginAlert'); alert.innerHTML='';
+    if(!u||!p){ alert.innerHTML='<div class="alert error">نام کاربری و رمز عبور الزامی است.</div>'; return; }
+    $('#loginBtn').disabled=true;
+    api('auth.login',{username:u,password:p,deviceInfo:navigator.userAgent||''}).then(function(data){
+      setToken(data.token); state.user = data.user;
+      if(data.mustChangePassword){ renderChangePassword(true); } else { render(); }
+    }).catch(function(err){ alert.innerHTML='<div class="alert error">'+esc(err.message||'خطا در ورود')+'</div>'; }).finally(function(){ var b=$('#loginBtn'); if(b) b.disabled=false; });
+  }
+
+  function doBootstrap(){
+    var u=$('#bootUser').value.trim(), p=$('#bootPass').value, n=$('#bootName').value.trim();
+    var alert=$('#loginAlert');
+    if(!u||!p){ alert.innerHTML='<div class="alert error">اطلاعات مدیر اولیه ناقص است.</div>'; return; }
+    $('#bootBtn').disabled=true;
+    api('setup.bootstrapAdmin',{username:u,password:p,displayName:n||'مدیر سیستم'}).then(function(){
+      alert.innerHTML='<div class="alert success">مدیر اولیه ایجاد شد. اکنون وارد شوید.</div>';
+    }).catch(function(err){ alert.innerHTML='<div class="alert error">'+esc(err.message||'خطا')+'</div>'; }).finally(function(){ var b=$('#bootBtn'); if(b) b.disabled=false; });
+  }
+
+  function renderChangePassword(forced){
+    var app=$('#app');
+    app.innerHTML='<div class="login-wrap"><div class="login-card"><div class="login-brand"><h1>تغییر رمز عبور</h1><p>'+ (forced?'تغییر رمز در اولین ورود الزامی است.':'') +'</p></div><div id="cpAlert"></div><div class="form-group"><label>رمز فعلی</label><input id="oldP" type="password"></div><div class="form-group"><label>رمز جدید</label><input id="newP" type="password"></div><button class="btn gold" id="cpBtn">ذخیره و ادامه</button></div></div>';
+    $('#cpBtn').onclick=function(){
+      api('auth.changePassword',{token:state.token,oldPassword:$('#oldP').value,newPassword:$('#newP').value}).then(function(){
+        $('#cpAlert').innerHTML='<div class="alert success">رمز عبور تغییر کرد. دوباره وارد شوید.</div>';
+        setToken(''); state.user=null; setTimeout(render, 800);
+      }).catch(function(err){ $('#cpAlert').innerHTML='<div class="alert error">'+esc(err.message||'خطا')+'</div>'; });
+    };
+  }
+
+  function doLogout(){
+    api('auth.logout',{token:state.token}).finally(function(){ setToken(''); state.user=null; render(); });
+  }
+  function loadRoute(routeId){
+    var c = $('#content'); if(!c) return;
+    c.innerHTML = '<div class="panel">در حال بارگذاری...</div>';
+    var fn = {
+      dashboard: viewDashboard, customers: viewCustomers, doctors: viewDoctors, operators: viewOperators,
+      services: viewServices, invoices: viewInvoices, expenses: viewExpenses, revenue: viewRevenue,
+      commissions: viewCommissions, commissionRules: viewCommissionRules, reports: viewReports,
+      users: viewUsers, settings: viewSettings
+    }[routeId];
+    if(!fn){ c.innerHTML='<div class="panel">صفحه یافت نشد.</div>'; return; }
+    Promise.resolve().then(fn).catch(function(err){ c.innerHTML='<div class="panel"><div class="alert error">'+esc(err.message||'خطا در بارگذاری')+'</div></div>'; if(err && err.code==='UNAUTHORIZED'){ setToken(''); state.user=null; render(); } });
+  }
+
+  function card(t,v,h){ return '<div class="card"><h3>'+esc(t)+'</h3><div class="value">'+esc(v)+'</div>'+ (h?'<div class="hint">'+esc(h)+'</div>':'') +'</div>'; }
+
+  function viewDashboard(){
+    return api('reports.dashboard',{}).then(function(d){
+      var cards = '';
+      if(state.user.role==='doctor'){
+        cards += card('فاکتورهای ماه', fmtNum(d.month_invoices));
+        cards += card('مبلغ فاکتورهای ماه', fmtMoney(d.month_total));
+        cards += card('پورسانت قابل پرداخت', fmtMoney(d.commission_payable));
+        cards += card('پورسانت پرداخت‌شده', fmtMoney(d.commission_paid));
+      } else {
+        cards += card('مشتریان', fmtNum(d.customers_count));
+        cards += card('فاکتورهای ماه', fmtNum(d.month_invoices_count));
+        cards += card('درآمد ماه', fmtMoney(d.month_income_total));
+        cards += card('هزینه ماه', fmtMoney(d.month_expense_total));
+        cards += card('خالص ماه', fmtMoney(d.month_net));
+        cards += card('پورسانت قابل پرداخت', fmtMoney(d.commission_payable_total));
+      }
+      $('#content').innerHTML = '<div class="grid cards">'+cards+'</div><div class="panel" style="margin-top:14px"><h2>خلاصه</h2><p class="muted">تاریخ امروز: '+esc(d.today||todayIso())+' | نقش: '+esc(roleLabel(state.user.role))+'</p><div class="alert info">ابتدا ساختار شیت‌ها (Setup)، تنظیم Script Properties (شناسه شیت و AUTH_PEPPER)، و در صورت نیاز ایجاد مدیر اولیه انجام شود. هیچ داده نمونه‌ای ایجاد نمی‌شود.</div></div>';
+    });
+  }
+
+  function viewCustomers(){
+    return api('customers.list',{}).then(function(rows){
+      var canEdit = state.user.role!=='doctor';
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>مشتریان</h2><div class="toolbar">'+(canEdit?'<button class="btn gold sm" id="addCustomer">مشتری جدید</button>':'')+'</div></div><div class="table-wrap"><table><thead><tr><th>نام</th><th>موبایل</th><th>کد ملی</th><th>وضعیت</th>'+ (canEdit?'<th>عملیات</th>':'') +'</tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr><td>'+esc(r.full_name)+'</td><td>'+esc(r.mobile)+'</td><td>'+esc(r.national_code)+'</td><td>'+esc(r.status||'')+'</td>'+ (canEdit?'<td><button class="btn sm secondary" data-edit="'+esc(r.id)+'">ویرایش</button></td>':'') +'</tr>'; }).join('') +'</tbody></table></div></div>';
+      if(canEdit){ $('#addCustomer').onclick=function(){ openCustomerModal(); }; $all('[data-edit]').forEach(function(b){ b.onclick=function(){ var id=b.getAttribute('data-edit'); var r=(rows||[]).filter(function(x){return x.id===id;})[0]; openCustomerModal(r); }; }); }
+    });
+  }
+  function openCustomerModal(row){
+    row=row||{}; showModal('<h3>'+(row.id?'ویرایش مشتری':'مشتری جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام کامل</label><input id="c_name" value="'+esc(row.full_name||'')+'"></div><div class="form-group"><label>موبایل</label><input id="c_mobile" value="'+esc(row.mobile||'')+'"></div><div class="form-group"><label>تلفن</label><input id="c_phone" value="'+esc(row.phone||'')+'"></div><div class="form-group"><label>کد ملی</label><input id="c_national_code" value="'+esc(row.national_code||'')+'"></div></div><div class="form-group"><label>آدرس</label><input id="c_addr" value="'+esc(row.address||'')+'"></div><div class="form-group"><label>یادداشت</label><textarea id="c_notes">'+esc(row.notes||'')+'</textarea></div><div class="row"><button class="btn gold" id="c_save">ذخیره</button><button class="btn secondary" id="c_cancel">انصراف</button></div>', function(close){
+      $('#c_cancel').onclick=close; $('#c_save').onclick=function(){ var payload={id:row.id,full_name:$('#c_name').value,mobile:$('#c_mobile').value,phone:$('#c_phone').value,national_code:$('#c_national_code').value,address:$('#c_addr').value,notes:$('#c_notes').value}; api(row.id?'customers.update':'customers.create',payload).then(function(){ toast('ذخیره شد','success'); close(); loadRoute('customers'); }).catch(function(e){ toast(e.message||'خطا','error'); }); };
+    });
+  }
+
+  function simpleCrudView(opts){
+    return api(opts.list,{}).then(function(rows){
+      var canManage = opts.canManage();
+      var cols = opts.columns;
+      var head = '<tr>'+cols.map(function(c){return '<th>'+esc(c.label)+'</th>';}).join('')+(canManage?'<th>عملیات</th>':'')+'</tr>';
+      var body = (rows||[]).map(function(r){ return '<tr>'+cols.map(function(c){ var v = typeof c.value==='function'?c.value(r):r[c.key]; return '<td>'+esc(v==null?'':v)+'</td>'; }).join('')+(canManage?'<td><button class="btn sm secondary" data-edit="'+esc(r.id)+'">ویرایش</button></td>':'')+'</tr>'; }).join('');
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>'+esc(opts.title)+'</h2><div class="toolbar">'+(canManage?'<button class="btn gold sm" id="addBtn">جدید</button>':'')+'</div></div><div class="table-wrap"><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div></div>';
+      if(canManage){ $('#addBtn').onclick=function(){ opts.openModal(null, rows); }; $all('[data-edit]').forEach(function(b){ b.onclick=function(){ var id=b.getAttribute('data-edit'); var r=(rows||[]).filter(function(x){return x.id===id;})[0]; opts.openModal(r, rows); }; }); }
+    });
+  }
+
+  function viewDoctors(){ return simpleCrudView({ title:'پزشکان', list:'doctors.list', canManage:function(){return state.user.role==='admin';}, columns:[{label:'نام',key:'full_name'},{label:'تخصص',key:'specialty'},{label:'موبایل',key:'mobile'}], openModal:function(row){ row=row||{}; showModal('<h3>'+(row.id?'ویرایش پزشک':'پزشک جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام</label><input id="f1" value="'+esc(row.full_name||'')+'"></div><div class="form-group"><label>تخصص</label><input id="f2" value="'+esc(row.specialty||'')+'"></div><div class="form-group"><label>موبایل</label><input id="f3" value="'+esc(row.mobile||'')+'"></div></div><div class="form-group"><label>یادداشت</label><input id="f4" value="'+esc(row.notes||'')+'"></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api(row.id?'doctors.update':'doctors.create',{id:row.id,full_name:$('#f1').value,specialty:$('#f2').value,mobile:$('#f3').value,notes:$('#f4').value}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('doctors');}).catch(function(e){toast(e.message||'خطا','error');}); };}); } }); }
+  function viewOperators(){ return simpleCrudView({ title:'اپراتورها', list:'operators.list', canManage:function(){return state.user.role==='admin';}, columns:[{label:'نام',key:'full_name'},{label:'عنوان',key:'role_title'},{label:'موبایل',key:'mobile'}], openModal:function(row){ row=row||{}; showModal('<h3>'+(row.id?'ویرایش اپراتور':'اپراتور جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام</label><input id="f1" value="'+esc(row.full_name||'')+'"></div><div class="form-group"><label>عنوان نقش</label><input id="f2" value="'+esc(row.role_title||'')+'"></div><div class="form-group"><label>موبایل</label><input id="f3" value="'+esc(row.mobile||'')+'"></div></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api(row.id?'operators.update':'operators.create',{id:row.id,full_name:$('#f1').value,role_title:$('#f2').value,mobile:$('#f3').value}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('operators');}).catch(function(e){toast(e.message||'خطا','error');}); };}); } }); }
+  function viewServices(){ return simpleCrudView({ title:'خدمات', list:'services.list', canManage:function(){return state.user.role==='admin';}, columns:[{label:'نام',key:'name'},{label:'دسته',key:'category'},{label:'قیمت پایه',value:function(r){return fmtMoney(r.base_price_toman);}},{label:'مشمول مالیات',value:function(r){return String(r.taxable)==='false'?'خیر':'بله';}}], openModal:function(row){ row=row||{}; showModal('<h3>'+(row.id?'ویرایش خدمت':'خدمت جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام</label><input id="f1" value="'+esc(row.name||'')+'"></div><div class="form-group"><label>دسته</label><input id="f2" value="'+esc(row.category||'')+'"></div><div class="form-group"><label>قیمت پایه (تومان)</label><input id="f3" type="number" value="'+esc(row.base_price_toman||0)+'"></div><div class="form-group"><label>نرخ مالیات پیش‌فرض (%)</label><input id="f4" type="number" value="'+esc(row.default_tax_rate||0)+'"></div></div><div class="form-group"><label><input type="checkbox" id="f5" '+(String(row.taxable)!=='false'?'checked':'')+'> مشمول مالیات</label></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api(row.id?'services.update':'services.create',{id:row.id,name:$('#f1').value,category:$('#f2').value,base_price_toman:Number($('#f3').value||0),default_tax_rate:$('#f4').value,taxable:$('#f5').checked}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('services');}).catch(function(e){toast(e.message||'خطا','error');}); };}); } }); }
+  function viewExpenses(){
+    if(state.user.role==='doctor'){ $('#content').innerHTML='<div class="panel">دسترسی ندارید.</div>'; return; }
+    return api('expenses.list',{}).then(function(rows){
+      var canCreate = state.user.role==='admin' || state.user.role==='operator';
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>هزینه‌ها</h2><div class="toolbar">'+(canCreate?'<button class="btn gold sm" id="addExp">ثبت هزینه</button>':'')+'</div></div><div class="table-wrap"><table><thead><tr><th>تاریخ</th><th>دسته</th><th>مبلغ</th><th>پرداخت‌شده به</th><th>شرح</th></tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr><td>'+esc(r.date)+'</td><td>'+esc(r.category)+'</td><td>'+fmtMoney(r.amount_toman)+'</td><td>'+esc(r.payee)+'</td><td>'+esc(r.description)+'</td></tr>'; }).join('') +'</tbody></table></div></div>';
+      if(canCreate){ $('#addExp').onclick=function(){ showModal('<h3>ثبت هزینه</h3><div class="form-grid"><div class="form-group"><label>تاریخ (YYYY-MM-DD)</label><input id="e1" value="'+todayIso()+'"></div><div class="form-group"><label>دسته</label><input id="e2"></div><div class="form-group"><label>مبلغ (تومان)</label><input id="e3" type="number"></div><div class="form-group"><label>پرداخت‌شده به</label><input id="e4"></div></div><div class="form-group"><label>شرح</label><input id="e5"></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api('expenses.create',{date:$('#e1').value,category:$('#e2').value,amount_toman:Number($('#e3').value||0),payee:$('#e4').value,description:$('#e5').value}).then(function(){toast('ثبت شد','success'); close(); loadRoute('expenses');}).catch(function(e){toast(e.message||'خطا','error');}); };}); }; }
+    });
+  }
+
+  function viewRevenue(){
+    return api('revenue.list',{}).then(function(rows){
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>درآمدهای متفرقه</h2><div class="toolbar"><button class="btn gold sm" id="addRev">ثبت درآمد متفرقه</button></div></div><div class="alert info">پرداخت‌های فاکتور به‌صورت جداگانه از فاکتورها محاسبه می‌شوند و در این بخش ثبت نمی‌شوند (جلوگیری از دوباره‌شماری).</div><div class="table-wrap"><table><thead><tr><th>تاریخ</th><th>منبع</th><th>مبلغ</th><th>شرح</th></tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr><td>'+esc(r.date)+'</td><td>'+esc(r.source_type)+'</td><td>'+fmtMoney(r.amount_toman)+'</td><td>'+esc(r.description)+'</td></tr>'; }).join('') +'</tbody></table></div></div>';
+      $('#addRev').onclick=function(){ showModal('<h3>ثبت درآمد متفرقه</h3><div class="form-grid"><div class="form-group"><label>تاریخ</label><input id="r1" value="'+todayIso()+'"></div><div class="form-group"><label>نوع منبع</label><input id="r2" value="misc"></div><div class="form-group"><label>مبلغ (تومان)</label><input id="r3" type="number"></div></div><div class="form-group"><label>شرح</label><input id="r4"></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api('revenue.create',{date:$('#r1').value,source_type:$('#r2').value,amount_toman:Number($('#r3').value||0),description:$('#r4').value}).then(function(){toast('ثبت شد','success'); close(); loadRoute('revenue');}).catch(function(e){toast(e.message||'خطا','error');}); };}); };
+    });
+  }
+
+  function viewCommissionRules(){
+    return api('commissionRules.list',{}).then(function(rows){
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>قواعد پورسانت</h2><div class="toolbar"><button class="btn gold sm" id="addRule">قاعده جدید</button></div></div><div class="alert info">percent یا fixed_per_unit. برای fixed_per_unit: <b>commission_amount = fixed_amount_per_unit × quantity</b> و quantity از InvoiceItems.quantity خوانده می‌شود.</div><div class="table-wrap"><table><thead><tr><th>ذینفع</th><th>شخص</th><th>خدمت</th><th>نوع</th><th>مقدار</th><th>اولویت</th><th>فعال</th></tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr><td>'+esc(r.applies_to)+'</td><td>'+esc(r.person_id||'همه')+'</td><td>'+esc(r.service_id||'همه')+'</td><td>'+esc(r.type)+'</td><td>'+esc(r.value)+'</td><td>'+esc(r.priority)+'</td><td>'+esc(String(r.is_active)==='false'?'خیر':'بله')+'</td></tr>'; }).join('') +'</tbody></table></div></div>';
+      $('#addRule').onclick=function(){ showModal('<h3>قاعده پورسانت</h3><div class="form-grid"><div class="form-group"><label>ذینفع</label><select id="r1"><option value="doctor">doctor</option><option value="operator">operator</option></select></div><div class="form-group"><label>شناسه شخص (اختیاری)</label><input id="r2"></div><div class="form-group"><label>شناسه خدمت (اختیاری)</label><input id="r3"></div><div class="form-group"><label>نوع</label><select id="r4"><option value="percent">percent</option><option value="fixed_per_unit">fixed_per_unit</option></select></div><div class="form-group"><label>مقدار (درصد یا مبلغ واحد)</label><input id="r5" type="number"></div><div class="form-group"><label>اولویت</label><input id="r6" type="number" value="100"></div></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api('commissionRules.upsert',{applies_to:$('#r1').value,person_id:$('#r2').value,service_id:$('#r3').value,type:$('#r4').value,value:$('#r5').value,priority:$('#r6').value}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('commissionRules');}).catch(function(e){toast(e.message||'خطا','error');}); };}); };
+    });
+  }
+
+  function statusBadge(s){ var map={draft:['پیش‌نویس','info'],pending_discount_approval:['در انتظار تأیید تخفیف','warn'],issued:['صادرشده','success'],partially_paid:['پرداخت جزئی','warn'],paid:['پرداخت‌شده','success'],void:['باطل','danger'],calculated:['محاسبه‌شده','info'],payable:['قابل پرداخت','warn'],adjusted:['تعدیل‌شده','warn'],requested:['درخواست‌شده','warn'],approved:['تأییدشده','success'],rejected:['رد شده','danger'],none:['-','']}; var m=map[s]||[s,'info']; return badge(m[0],m[1]); }
+
+  function viewCommissions(){
+    return api('commissions.list',{}).then(function(rows){
+      var isAdmin = state.user.role==='admin';
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>پورسانت‌ها</h2><div class="toolbar">'+(isAdmin?'<button class="btn sm" id="approveSel">تأیید انتخاب‌شده‌ها (payable)</button><button class="btn gold sm" id="paySel">ثبت پرداخت انتخاب‌شده‌ها (paid)</button>':'')+'</div></div><div class="alert info">چرخه اجباری: <b>calculated → payable → paid</b>. گذار مستقیم calculated→paid مجاز نیست. فقط مدیر تأیید/پرداخت انجام می‌دهد و همه تغییرات در AuditLog ثبت می‌شود.</div><div class="table-wrap"><table><thead><tr>'+(isAdmin?'<th></th>':'')+'<th>فاکتور</th><th>ذینفع</th><th>مبنا</th><th>quantity</th><th>مبلغ</th><th>وضعیت</th><th>مرجع پرداخت</th></tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr>'+(isAdmin?'<td><input type="checkbox" class="csel" value="'+esc(r.id)+'" data-status="'+esc(r.status)+'"></td>':'')+'<td>'+esc(r.invoice_id)+'</td><td>'+esc(r.person_type+':'+r.person_id)+'</td><td>'+fmtMoney(r.commission_basis_toman)+'</td><td>'+esc(r.quantity)+'</td><td>'+fmtMoney(r.commission_amount_toman)+'</td><td>'+statusBadge(r.status)+'</td><td>'+esc(r.payment_reference||'')+'</td></tr>'; }).join('') +'</tbody></table></div></div>';
+      if(isAdmin){
+        $('#approveSel').onclick=function(){ var ids=$all('.csel:checked').filter(function(x){return x.getAttribute('data-status')==='calculated';}).map(function(x){return x.value;}); if(!ids.length){toast('مورد calculated انتخاب نشده است','error'); return;} api('commissions.approvePayable',{ids:ids}).then(function(){toast('تأیید شد (payable)','success'); loadRoute('commissions');}).catch(function(e){toast(e.message||'خطا','error');}); };
+        $('#paySel').onclick=function(){ var ids=$all('.csel:checked').filter(function(x){return x.getAttribute('data-status')==='payable';}).map(function(x){return x.value;}); if(!ids.length){toast('مورد payable انتخاب نشده است','error'); return;} var ref=prompt('مرجع/مدرک پرداخت واقعی:','')||''; api('commissions.markPaid',{ids:ids,payment_reference:ref}).then(function(){toast('پرداخت ثبت شد (paid)','success'); loadRoute('commissions');}).catch(function(e){toast(e.message||'خطا','error');}); };
+      }
+    });
+  }
+
+  function viewReports(){
+    return api('reports.summary',{}).then(function(s){
+      $('#content').innerHTML = '<div class="grid cards">'+
+        card('درآمد فاکتورها (پرداخت‌ها)', fmtMoney(s.invoice_income))+
+        card('درآمد متفرقه', fmtMoney(s.misc_income))+
+        card('جمع درآمد', fmtMoney(s.income_total))+
+        card('جمع هزینه', fmtMoney(s.expense_total))+
+        card('خالص', fmtMoney(s.net))+
+      '</div><div class="panel" style="margin-top:14px"><h2>وضعیت فاکتورها</h2><pre class="small muted" style="white-space:pre-wrap">'+esc(JSON.stringify(s.invoices_by_status||{},null,2))+'</pre><h2>مبالغ پورسانت به تفکیک وضعیت</h2><pre class="small muted" style="white-space:pre-wrap">'+esc(JSON.stringify(s.commissions_amount_by_status||{},null,2))+'</pre></div>';
+    });
+  }
+
+  function viewUsers(){
+    return Promise.all([api('users.list',{}), api('doctors.list',{}), api('operators.list',{})]).then(function(res){
+      var rows=res[0]||[], doctors=res[1]||[], operators=res[2]||[];
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>کاربران</h2><div class="toolbar"><button class="btn gold sm" id="addUser">کاربر جدید</button></div></div><div class="table-wrap"><table><thead><tr><th>نام کاربری</th><th>نام</th><th>نقش</th><th>فعال</th><th>آخرین ورود</th></tr></thead><tbody>'+ rows.map(function(u){ return '<tr><td>'+esc(u.username)+'</td><td>'+esc(u.display_name)+'</td><td>'+esc(roleLabel(u.role))+'</td><td>'+ (u.is_active?'بله':'خیر') +'</td><td>'+esc(u.last_login_at||'')+'</td></tr>'; }).join('') +'</tbody></table></div></div>';
+      $('#addUser').onclick=function(){ showModal('<h3>کاربر جدید</h3><div class="form-grid"><div class="form-group"><label>نام کاربری</label><input id="u1"></div><div class="form-group"><label>رمز عبور</label><input id="u2" type="password"></div><div class="form-group"><label>نام نمایشی</label><input id="u3"></div><div class="form-group"><label>نقش</label><select id="u4"><option value="admin">مدیر</option><option value="operator">اپراتور</option><option value="doctor">پزشک</option></select></div><div class="form-group"><label>شناسه پزشک (برای نقش پزشک)</label><select id="u5"><option value="">-</option>'+doctors.map(function(d){return '<option value="'+esc(d.id)+'">'+esc(d.full_name)+'</option>';}).join('')+'</select></div><div class="form-group"><label>شناسه اپراتور (اختیاری)</label><select id="u6"><option value="">-</option>'+operators.map(function(o){return '<option value="'+esc(o.id)+'">'+esc(o.full_name)+'</option>';}).join('')+'</select></div></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api('users.create',{username:$('#u1').value,password:$('#u2').value,display_name:$('#u3').value,role:$('#u4').value,linked_doctor_id:$('#u5').value,linked_operator_id:$('#u6').value}).then(function(){toast('کاربر ایجاد شد','success'); close(); loadRoute('users');}).catch(function(e){toast(e.message||'خطا','error');}); };}); };
+    });
+  }
+
+  function viewSettings(){
+    return api('settings.get',{}).then(function(map){
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>تنظیمات</h2></div><div class="alert info">اجرای Setup ساختار شیت‌ها (بدون داده نمونه). شناسه Spreadsheet و AUTH_PEPPER باید در Script Properties تنظیم شوند (خارج از مخزن). برای کالیبراسیون PBKDF2 تابع سروری <code>wrcCalibratePbkdf2()</code> توسط مالک اجرا شود.</div><div class="row" style="margin-bottom:12px"><button class="btn gold" id="runSetup">اجرای Setup شیت‌ها</button></div><div class="form-grid"><div class="form-group"><label>مالیات فعال (true/false)</label><input id="s1" value="'+esc(map.tax_enabled||'true')+'"></div><div class="form-group"><label>نرخ پیش‌فرض مالیات (%)</label><input id="s2" value="'+esc(map.tax_default_rate||'0')+'"></div><div class="form-group"><label>پیشوند شماره فاکتور</label><input id="s3" value="'+esc(map.invoice_prefix||'WRC')+'"></div></div><div class="row" style="margin-top:10px"><button class="btn" id="saveSet">ذخیره تنظیمات</button></div></div>';
+      $('#runSetup').onclick=function(){ api('setup.run',{}).then(function(){ toast('راه‌اندازی انجام شد','success'); }).catch(function(e){ toast(e.message||'خطا','error'); }); };
+      $('#saveSet').onclick=function(){ Promise.all([api('settings.set',{key:'tax_enabled',value:$('#s1').value}), api('settings.set',{key:'tax_default_rate',value:$('#s2').value}), api('settings.set',{key:'invoice_prefix',value:$('#s3').value})]).then(function(){ toast('تنظیمات ذخیره شد','success'); }).catch(function(e){ toast(e.message||'خطا','error'); }); };
+    });
+  }
+  function viewInvoices(){
+    return Promise.all([api('invoices.list',{}), state.user.role==='doctor'?Promise.resolve([]):api('customers.list',{}), state.user.role==='doctor'?Promise.resolve([]):api('doctors.list',{}), state.user.role==='doctor'?Promise.resolve([]):api('services.list',{})]).then(function(res){
+      var rows=res[0]||[], customers=res[1]||[], doctors=res[2]||[], services=res[3]||[];
+      var canCreate = state.user.role==='admin' || state.user.role==='operator';
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>فاکتورها</h2><div class="toolbar">'+(canCreate?'<button class="btn gold sm" id="newInv">فاکتور جدید</button>':'')+'</div></div><div class="table-wrap"><table><thead><tr><th>شماره</th><th>تاریخ</th><th>مشتری</th><th>جمع</th><th>پرداخت</th><th>مانده</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>'+ rows.map(function(r){ return '<tr><td>'+esc(r.invoice_no||'-')+'</td><td>'+esc(r.invoice_date)+'</td><td>'+esc(r.customer_id)+'</td><td>'+fmtMoney(r.total_toman)+'</td><td>'+fmtMoney(r.paid_toman)+'</td><td>'+fmtMoney(r.balance_toman)+'</td><td>'+statusBadge(r.status)+'</td><td><button class="btn sm secondary" data-view="'+esc(r.id)+'">مشاهده</button></td></tr>'; }).join('') +'</tbody></table></div></div>';
+      if(canCreate) $('#newInv').onclick=function(){ openInvoiceModal(null, customers, doctors, services); };
+      $all('[data-view]').forEach(function(b){ b.onclick=function(){ openInvoiceDetail(b.getAttribute('data-view'), customers, doctors, services); }; });
+    });
+  }
+
+  function openInvoiceModal(row, customers, doctors, services){
+    row=row||{}; var items = (row.items&&row.items.length)?row.items:[{service_id:'',quantity:1,unit_price_toman:0,description:''}];
+    function renderItems(){ return '<div id="invItems">'+items.map(function(it,i){ return '<div class="form-grid" style="margin-bottom:8px;border:1px solid #2a3333;padding:8px;border-radius:8px"><div class="form-group"><label>خدمت</label><select data-i="'+i+'" data-k="service_id"><option value="">-</option>'+services.map(function(s){return '<option value="'+esc(s.id)+'" '+(s.id===it.service_id?'selected':'')+'>'+esc(s.name)+'</option>';}).join('')+'</select></div><div class="form-group"><label>quantity</label><input type="number" step="1" min="1" data-i="'+i+'" data-k="quantity" value="'+esc(it.quantity||1)+'"></div><div class="form-group"><label>مبلغ واحد (تومان)</label><input type="number" data-i="'+i+'" data-k="unit_price_toman" value="'+esc(it.unit_price_toman||0)+'"></div><div class="form-group"><label>شرح</label><input data-i="'+i+'" data-k="description" value="'+esc(it.description||'')+'"></div></div>'; }).join('')+'</div>'; }
+    showModal('<h3>فاکتور</h3><div class="form-grid"><div class="form-group"><label>تاریخ</label><input id="iv_date" value="'+esc(row.invoice_date||todayIso())+'"></div><div class="form-group"><label>مشتری</label><select id="iv_cust"><option value="">-</option>'+customers.map(function(c){return '<option value="'+esc(c.id)+'" '+(c.id===row.customer_id?'selected':'')+'>'+esc(c.full_name)+'</option>';}).join('')+'</select></div><div class="form-group"><label>پزشک</label><select id="iv_doc"><option value="">-</option>'+doctors.map(function(d){return '<option value="'+esc(d.id)+'" '+(d.id===row.doctor_id?'selected':'')+'>'+esc(d.full_name)+'</option>';}).join('')+'</select></div></div><div class="form-group"><label>درخواست تخفیف کل (تومان) - نیازمند تأیید مدیر</label><input id="iv_disc" type="number" value="'+esc(row.discount_requested_toman||0)+'"></div><div class="form-group"><label>توضیح تخفیف</label><input id="iv_disc_note" value="'+esc(row.discount_request_note||'')+'"></div><h4>آیتم‌ها</h4>'+renderItems()+'<button class="btn sm secondary" id="addItem">افزودن آیتم</button><div class="row" style="margin-top:12px"><button class="btn gold" id="saveInv">ذخیره پیش‌نویس</button><button class="btn secondary" id="cnInv">انصراف</button></div>', function(close){
+      function bind(){ $all('#invItems [data-i]').forEach(function(el){ el.onchange=function(){ var i=Number(el.getAttribute('data-i')), k=el.getAttribute('data-k'); items[i]=items[i]||{}; items[i][k]= (k==='quantity'||k==='unit_price_toman')?Number(el.value):el.value; if(k==='service_id'){ var svc=services.filter(function(s){return s.id===el.value;})[0]; if(svc && !items[i].unit_price_toman) items[i].unit_price_toman=Number(svc.base_price_toman||0); var container=document.getElementById('invItems'); if(container){ container.outerHTML=renderItems(); bind(); } } }; }); }
+      bind();
+      $('#addItem').onclick=function(){ items.push({service_id:'',quantity:1,unit_price_toman:0,description:''}); var container=document.getElementById('invItems'); if(container){ container.outerHTML=renderItems(); bind(); } };
+      $('#cnInv').onclick=close;
+      $('#saveInv').onclick=function(){ $all('#invItems [data-i]').forEach(function(el){ var i=Number(el.getAttribute('data-i')), k=el.getAttribute('data-k'); items[i][k]=(k==='quantity'||k==='unit_price_toman')?Number(el.value):el.value; }); var payload={id:row.id,invoice_date:$('#iv_date').value,customer_id:$('#iv_cust').value,doctor_id:$('#iv_doc').value,discount_requested_toman:Number($('#iv_disc').value||0),discount_request_note:$('#iv_disc_note').value,items:items.filter(function(it){return it.service_id || it.unit_price_toman || it.description;})}; api('invoices.saveDraft',payload).then(function(){toast('ذخیره شد','success'); close(); loadRoute('invoices');}).catch(function(e){toast(e.message||'خطا','error');}); };
+    });
+  }
+
+  function openInvoiceDetail(id, customers, doctors, services){
+    api('invoices.get',{id:id}).then(function(data){
+      var inv=data.invoice, items=data.items||[], pays=data.payments||[];
+      var isAdmin = state.user.role==='admin';
+      var canOp = state.user.role==='admin' || state.user.role==='operator';
+      var actions = '';
+      if(canOp && ['draft','pending_discount_approval'].indexOf(inv.status)>=0) actions += '<button class="btn sm" id="actIssue">صدور فاکتور</button> ';
+      if(isAdmin && String(inv.discount_status)==='requested') actions += '<button class="btn sm gold" id="actApproveDisc">تأیید تخفیف</button> <button class="btn sm danger" id="actRejectDisc">رد تخفیف</button> ';
+      if(canOp && ['issued','partially_paid'].indexOf(inv.status)>=0) actions += '<button class="btn sm" id="actPay">ثبت پرداخت</button> ';
+      if(isAdmin && inv.status!=='void') actions += '<button class="btn sm danger" id="actVoid">ابطال فاکتور</button> ';
+      var html = '<h3>فاکتور '+esc(inv.invoice_no||inv.id)+'</h3><div class="row small muted"><div>وضعیت: '+statusBadge(inv.status)+'</div><div>تخفیف: '+statusBadge(inv.discount_status||'none')+'</div></div><hr class="sep">'+
+        '<div class="form-grid"><div><label>تاریخ</label><div>'+esc(inv.invoice_date)+'</div></div><div><label>جمع جزء</label><div>'+fmtMoney(inv.subtotal_toman)+'</div></div><div><label>تخفیف</label><div>'+fmtMoney(inv.discount_toman)+'</div></div><div><label>مالیات</label><div>'+fmtMoney(inv.tax_toman)+'</div></div><div><label>مبلغ کل</label><div><b>'+fmtMoney(inv.total_toman)+'</b></div></div><div><label>پرداخت‌شده/مانده</label><div>'+fmtMoney(inv.paid_toman)+' / '+fmtMoney(inv.balance_toman)+'</div></div></div>'+
+        '<h4>آیتم‌ها</h4><div class="table-wrap"><table><thead><tr><th>خدمت</th><th>quantity</th><th>مبلغ واحد</th><th>ناخالص</th><th>سهم تخفیف</th><th>مالیات</th><th>مبلغ خط</th></tr></thead><tbody>'+items.map(function(it){return '<tr><td>'+esc(it.service_name_snapshot||it.description||it.service_id)+'</td><td>'+esc(it.quantity)+'</td><td>'+fmtMoney(it.unit_price_toman)+'</td><td>'+fmtMoney(it.line_gross_toman)+'</td><td>'+fmtMoney(it.line_discount_alloc_toman)+'</td><td>'+fmtMoney(it.line_tax_toman)+'</td><td>'+fmtMoney(it.line_total_toman)+'</td></tr>';}).join('')+'</tbody></table></div>'+
+        '<h4>پرداخت‌ها</h4><div class="table-wrap"><table><thead><tr><th>تاریخ</th><th>مبلغ</th><th>روش</th><th>مرجع</th></tr></thead><tbody>'+pays.map(function(p){return '<tr><td>'+esc(p.payment_date)+'</td><td>'+fmtMoney(p.amount_toman)+'</td><td>'+esc(p.method)+'</td><td>'+esc(p.reference_no)+'</td></tr>';}).join('')+'</tbody></table></div>'+
+        '<div class="row" style="margin-top:12px">'+actions+'<button class="btn secondary sm" id="actClose">بستن</button></div>';
+      showModal(html, function(close){
+        $('#actClose').onclick=close;
+        if($('#actIssue')) $('#actIssue').onclick=function(){ api('invoices.issue',{id:inv.id}).then(function(){toast('فاکتور صادر شد و پورسانت محاسبه شد','success'); close(); loadRoute('invoices');}).catch(function(e){toast(e.message||'خطا','error');}); };
+        if($('#actApproveDisc')) $('#actApproveDisc').onclick=function(){ var amt=prompt('مبلغ تخفیف تأییدشده (تومان):', inv.discount_requested_toman||0); if(amt===null) return; api('invoices.approveDiscount',{id:inv.id,approve:true,discount_approved_toman:Number(amt)}).then(function(){toast('تخفیف تأیید شد','success'); close(); loadRoute('invoices');}).catch(function(e){toast(e.message||'خطا','error');}); };
+        if($('#actRejectDisc')) $('#actRejectDisc').onclick=function(){ var reason=prompt('دلیل رد:','')||''; api('invoices.approveDiscount',{id:inv.id,approve:false,reason:reason}).then(function(){toast('تخفیف رد شد','success'); close(); loadRoute('invoices');}).catch(function(e){toast(e.message||'خطا','error');}); };
+        if($('#actPay')) $('#actPay').onclick=function(){ var amt=prompt('مبلغ پرداخت (تومان):', inv.balance_toman||0); if(amt===null) return; api('payments.add',{invoice_id:inv.id,amount_toman:Number(amt),payment_date:todayIso(),method:'cash'}).then(function(){toast('پرداخت ثبت شد','success'); close(); loadRoute('invoices');}).catch(function(e){toast(e.message||'خطا','error');}); };
+        if($('#actVoid')) $('#actVoid').onclick=function(){ var reason=prompt('دلیل ابطال:',''); if(reason===null) return; api('invoices.void',{id:inv.id,reason:reason}).then(function(){toast('فاکتور باطل شد','success'); close(); loadRoute('invoices');}).catch(function(e){toast(e.message||'خطا','error');}); };
+      });
+    }).catch(function(e){ toast(e.message||'خطا','error'); });
+  }
+
+  function showModal(content, onBind){
+    var root = document.createElement('div');
+    root.className='modal-backdrop';
+    root.innerHTML='<div class="modal">'+content+'</div>';
+    document.body.appendChild(root);
+    function close(){ try{document.body.removeChild(root);}catch(e){} }
+    root.addEventListener('click', function(e){ if(e.target===root) close(); });
+    onBind(close, root);
+  }
+
+  function boot(){
+    if(state.token){
+      api('auth.me',{}).then(function(d){ state.user = d.user; render(); }).catch(function(){ setToken(''); state.user=null; render(); });
+    } else {
+      api('system.ping',{}).then(function(){ render(); }).catch(function(){ render(); });
+    }
+  }
+
+  boot();
+})();
+</script>
