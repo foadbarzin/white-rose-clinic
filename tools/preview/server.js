@@ -20,6 +20,14 @@ const include = n => {
 props.AUTH_PEPPER = 'local-preview-pepper';
 WRC.Schema.setupAll('preview');
 WRC.Auth.bootstrapAdmin({ username: ADMIN_USER, password: ADMIN_PASS, displayName: ADMIN_NAME });
+// Preview convenience: the demo admin should land straight in the dashboard
+// instead of the forced first-login password change screen.
+try {
+  const adminUser = WRC.Auth.getUserByUsername(ADMIN_USER);
+  if (adminUser) WRC.SheetRepo.updateById('Users', adminUser.id, { must_change_password: 'false' });
+} catch (e) {
+  console.error('[preview] could not clear must_change_password:', e && e.message ? e.message : e);
+}
 const seedCtx = { user: WRC.Auth.login(ADMIN_USER, ADMIN_PASS, 'seed').user };
 const seeded = seed(WRC, seedCtx);
 console.log('[preview] seeded:', JSON.stringify(seeded));
