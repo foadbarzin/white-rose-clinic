@@ -1,0 +1,41 @@
+<!--
+  Client_Logo.html - brand logo include for Google Apps Script.
+  Mirrors src/assets/logo.svg (the official design asset) as an HTML file so it can be
+  rendered with HtmlService / include(). Keep this file in sync with src/assets/logo.svg.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ROSE SEFID BEAUTY CLINIC</title>
+  <desc id="desc">Gold rose with face profile and stethoscope emblem (executive placeholder matching brand concept)</desc>
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E2C45A"/>
+      <stop offset="45%" stop-color="#C9A227"/>
+      <stop offset="100%" stop-color="#9E7C19"/>
+    </linearGradient>
+    <linearGradient id="gold2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F0D97A"/>
+      <stop offset="50%" stop-color="#C9A227"/>
+      <stop offset="100%" stop-color="#8A6A12"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="64" fill="#0B0B0B"/>
+  <circle cx="256" cy="220" r="150" fill="none" stroke="url(#gold)" stroke-width="6"/>
+  <!-- rose -->
+  <g transform="translate(256,170)">
+    <path d="M0,-55 C20,-55 38,-40 38,-18 C55,-25 70,-10 60,10 C75,18 70,40 48,42 C52,60 30,72 10,62 C0,78 -25,72 -30,52 C-55,55 -70,35 -58,15 C-75,5 -65,-20 -42,-22 C-45,-45 -22,-58 0,-55 Z" fill="url(#gold2)" opacity="0.95"/>
+    <circle cx="0" cy="-5" r="16" fill="#0B0B0B" stroke="url(#gold)" stroke-width="3"/>
+    <path d="M-6,-8 C0,-18 10,-12 6,-2 C12,4 4,14 -2,6 C-12,10 -14,-2 -6,-8 Z" fill="url(#gold)"/>
+  </g>
+  <!-- face profile -->
+  <path d="M205 150 C190 175 188 205 200 235 C210 258 235 270 250 275 C235 255 232 230 242 205 C250 185 268 175 285 178 C270 160 245 145 205 150 Z" fill="#0B3D3A" stroke="url(#gold)" stroke-width="3"/>
+  <!-- stethoscope -->
+  <path d="M170 270 C170 330 210 360 256 360 C302 360 342 330 342 270" fill="none" stroke="url(#gold)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M170 270 C150 270 145 250 155 235" fill="none" stroke="url(#gold)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M342 270 C362 270 367 250 357 235" fill="none" stroke="url(#gold)" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="155" cy="228" r="10" fill="#0B3D3A" stroke="url(#gold)" stroke-width="4"/>
+  <circle cx="357" cy="228" r="10" fill="#0B3D3A" stroke="url(#gold)" stroke-width="4"/>
+  <circle cx="256" cy="360" r="18" fill="#0B3D3A" stroke="url(#gold)" stroke-width="5"/>
+  <circle cx="256" cy="360" r="6" fill="url(#gold)"/>
+  <text x="256" y="430" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" font-size="34" font-weight="700" fill="url(#gold)">ROSE SEFID</text>
+  <text x="256" y="462" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" font-size="22" letter-spacing="2" fill="#F7F3E8">BEAUTY CLINIC</text>
+</svg>

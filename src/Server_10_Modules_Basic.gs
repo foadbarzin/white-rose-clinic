@@ -21,7 +21,7 @@ WRC.CustomersSvc = (function(){
       var docId = String(ctx.user.linked_doctor_id||'');
       var allowed = {};
       inv.forEach(function(i){ if (String(i.doctor_id||'')===docId) allowed[String(i.customer_id||'')] = true; });
-      rows = rows.filter(function(c){ return allowed[String(c.id)]); });
+      rows = rows.filter(function(c){ return allowed[String(c.id)]; });
     }
     return rows;
   }
