@@ -218,15 +218,15 @@
   }
 
   var routes = [
-    {id:'dashboard', title:'داشبورد', roles:['admin','operator','doctor']},
-    {id:'customers', title:'مشتریان', roles:['admin','operator','doctor']},
-    {id:'invoices', title:'ثبت فاکتور', roles:['admin','operator','doctor']},
-    {id:'revenue', title:'درآمدهای متفرقه', roles:['admin']},
-    {id:'commissions', title:'پورسانت‌ها', roles:['admin','doctor']},
-    {id:'reports', title:'گزارش‌ها', roles:['admin','operator']},
-    {id:'users', title:'کاربران', roles:['admin']},
-    {id:'settings', title:'تنظیمات', roles:['admin']},
-    {id:'operations', title:'عملیات', roles:['admin','operator'], pinned:true, children:[
+    {id:'dashboard', title:'داشبورد', section:'عمومی', roles:['admin','operator','doctor']},
+    {id:'invoices', title:'ثبت فاکتور', section:'عمومی', roles:['admin','operator','doctor']},
+    {id:'revenue', title:'درآمدهای متفرقه', section:'مالی', roles:['admin']},
+    {id:'commissions', title:'پورسانت‌ها', section:'مالی', roles:['admin','doctor']},
+    {id:'reports', title:'گزارش‌ها', section:'مالی', roles:['admin','operator']},
+    {id:'users', title:'کاربران', section:'مدیریت', roles:['admin']},
+    {id:'settings', title:'تنظیمات', section:'مدیریت', roles:['admin']},
+    {id:'operations', title:'عملیات', section:'مدیریت', roles:['admin','operator'], pinned:true, children:[
+      {id:'customers', title:'مشتریان', roles:['admin','operator','doctor']},
       {id:'doctors', title:'تعریف پزشک', roles:['admin','operator']},
       {id:'operators', title:'تعریف اپراتور', roles:['admin','operator']},
       {id:'services', title:'تعریف خدمات', roles:['admin','operator']},
@@ -284,23 +284,32 @@
   }
 
   function renderShell(app){
-    var navHtml = routes.map(function(r){
+    var navHtml = '', lastSection = '';
+    routes.forEach(function(r){
+      var item = '';
       if (r.children && r.children.length) {
         var kids = r.children.filter(function(c){ return allowed(c.id); });
-        if (!kids.length) return '';
-        var open = kids.some(function(c){ return c.id === state.route; });
-        return '<div class="nav-group'+(open ? ' open' : '')+(r.pinned ? ' pinned' : '')+'">'+
-          '<button type="button" class="nav-group-head">'+
-            '<span>'+esc(r.title)+'</span><span class="chev" aria-hidden="true">▾</span>'+
-          '</button>'+
-          '<div class="nav-sub">'+
-            kids.map(function(c){ return '<button type="button" data-route="'+c.id+'" class="'+(state.route===c.id?'active':'')+'">'+esc(c.title)+'</button>'; }).join('')+
-          '</div>'+
-        '</div>';
+        if (kids.length) {
+          var open = kids.some(function(c){ return c.id === state.route; });
+          item = '<div class="nav-group'+(open ? ' open' : '')+(r.pinned ? ' pinned' : '')+'">'+
+            '<button type="button" class="nav-group-head">'+
+              '<span>'+esc(r.title)+'</span><span class="chev" aria-hidden="true">▾</span>'+
+            '</button>'+
+            '<div class="nav-sub">'+
+              kids.map(function(c){ return '<button type="button" data-route="'+c.id+'" class="'+(state.route===c.id?'active':'')+'"'+(state.route===c.id?' aria-current="page"':'')+'>'+esc(c.title)+'</button>'; }).join('')+
+            '</div>'+
+          '</div>';
+        }
+      } else if (allowed(r.id)) {
+        item = '<button data-route="'+r.id+'" class="'+(state.route===r.id?'active':'')+'"'+(state.route===r.id?' aria-current="page"':'')+'>'+esc(r.title)+'</button>';
       }
-      if (!allowed(r.id)) return '';
-      return '<button data-route="'+r.id+'" class="'+(state.route===r.id?'active':'')+'">'+esc(r.title)+'</button>';
-    }).join('');
+      if (!item) return;
+      if (r.section && r.section !== lastSection) {
+        navHtml += '<div class="nav-section-label">'+esc(r.section)+'</div>';
+        lastSection = r.section;
+      }
+      navHtml += item;
+    });
     app.innerHTML =
       '<div class="app-shell">'+
         '<aside class="sidebar">'+
@@ -316,9 +325,13 @@
         '</aside>'+
         '<main class="main">'+
           '<div class="topbar"><div class="page-title" id="pageTitle"></div>'+
-            '<div class="user"><span class="badge info">'+esc(roleLabel(state.user.role))+'</span>'+
-            '<span class="avatar">'+esc(initial(state.user))+'</span>'+
-            '<span>'+esc(state.user.username)+'</span></div></div>'+
+            '<div class="user">'+
+              '<span class="badge today-chip" title="تاریخ امروز">'+esc(todayLabel())+'</span>'+
+              '<button type="button" class="btn secondary sm icon-btn" id="refreshBtn" title="به‌روزرسانی" aria-label="به‌روزرسانی">⟳</button>'+
+              '<span class="badge info">'+esc(roleLabel(state.user.role))+'</span>'+
+              '<span class="avatar">'+esc(initial(state.user))+'</span>'+
+              '<span>'+esc(state.user.username)+'</span>'+
+            '</div></div>'+
           '<div class="content" id="content"><div class="panel">در حال بارگذاری...</div></div>'+
         '</main>'+
       '</div>';
@@ -326,6 +339,8 @@
       b.onclick = function(){ b.parentNode.classList.toggle('open'); };
     });
     $all('.nav button[data-route]').forEach(function(b){ b.onclick = function(){ navigate(b.getAttribute('data-route')); }; });
+    var refreshBtn = $('#refreshBtn');
+    if (refreshBtn) refreshBtn.onclick = function(){ loadRoute(state.route); toast('به‌روزرسانی شد', 'success'); };
     $('#logoutBtn').onclick = doLogout;
     navigate(state.route || 'dashboard');
   }
@@ -392,7 +407,7 @@
     Promise.resolve().then(fn).catch(function(err){ c.innerHTML='<div class="panel"><div class="alert error">'+esc(err.message||'خطا در بارگذاری')+'</div></div>'; if(err && err.code==='UNAUTHORIZED'){ setToken(''); state.user=null; render(); } });
   }
 
-  function card(t,v,h){ return '<div class="card"><h3>'+esc(t)+'</h3><div class="value">'+esc(v)+'</div>'+ (h?'<div class="hint">'+esc(h)+'</div>':'') +'</div>'; }
+  function card(t,v,h,tone){ return '<div class="card'+(tone?' tone-'+tone:'')+'"><h3>'+esc(t)+'</h3><div class="value">'+esc(v)+'</div>'+ (h?'<div class="hint">'+esc(h)+'</div>':'') +'</div>'; }
 
   function viewDashboard(){
     var r0 = dashRange();
@@ -407,17 +422,17 @@
       var t = d.totals || {};
       var cards = '';
       if (state.user.role === 'doctor') {
-        cards += card('فاکتورهای بازه', fmtNum(t.invoices_count));
-        cards += card('مبلغ فاکتورهای بازه', fmtMoney(t.invoices_total));
-        cards += card('پورسانت قابل پرداخت', fmtMoney(k.commission_payable));
-        cards += card('پورسانت پرداخت‌شده', fmtMoney(k.commission_paid));
+        cards += card('فاکتورهای بازه', fmtNum(t.invoices_count), '', 'info');
+        cards += card('مبلغ فاکتورهای بازه', fmtMoney(t.invoices_total), '', 'gold');
+        cards += card('پورسانت قابل پرداخت', fmtMoney(k.commission_payable), '', 'warn');
+        cards += card('پورسانت پرداخت‌شده', fmtMoney(k.commission_paid), '', 'success');
       } else {
-        cards += card('درآمد بازه', fmtMoney(t.income), 'فاکتور ' + fmtMoney(t.income_payments) + ' + متفرقه ' + fmtMoney(t.income_misc));
-        cards += card('هزینه بازه', fmtMoney(t.expense));
-        cards += card('خالص بازه', fmtMoney(t.net), Number(t.net) < 0 ? 'زیان در این بازه' : 'سود در این بازه');
-        cards += card('فاکتورهای بازه', fmtNum(t.invoices_count), fmtMoney(t.invoices_total));
-        cards += card('پورسانت قابل پرداخت', fmtMoney(k.commission_payable_total !== undefined ? k.commission_payable_total : t.commission_payable));
-        cards += card('مشتریان', fmtNum(k.customers_count));
+        cards += card('درآمد بازه', fmtMoney(t.income), 'فاکتور ' + fmtMoney(t.income_payments) + ' + متفرقه ' + fmtMoney(t.income_misc), 'gold');
+        cards += card('هزینه بازه', fmtMoney(t.expense), '', 'danger');
+        cards += card('خالص بازه', fmtMoney(t.net), Number(t.net) < 0 ? 'زیان در این بازه' : 'سود در این بازه', Number(t.net) < 0 ? 'danger' : 'success');
+        cards += card('فاکتورهای بازه', fmtNum(t.invoices_count), fmtMoney(t.invoices_total), 'info');
+        cards += card('پورسانت قابل پرداخت', fmtMoney(k.commission_payable_total !== undefined ? k.commission_payable_total : t.commission_payable), '', 'warn');
+        cards += card('مشتریان', fmtNum(k.customers_count), '', 'muted');
       }
       var preset = r0.preset || '';
       function seg(id, label){ return '<button class="seg-btn' + (preset === id ? ' active' : '') + '" data-preset="' + id + '">' + label + '</button>'; }
@@ -488,8 +503,40 @@
   function viewCustomers(){
     return api('customers.list',{}).then(function(rows){
       var canEdit = state.user.role!=='doctor';
-      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>مشتریان</h2><div class="toolbar">'+(canEdit?'<button class="btn gold sm" id="addCustomer">مشتری جدید</button>':'')+'</div></div><div class="table-wrap"><table><thead><tr><th>نام</th><th>موبایل</th><th>کد ملی</th><th>وضعیت</th>'+ (canEdit?'<th>عملیات</th>':'') +'</tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr><td>'+esc(r.full_name)+'</td><td>'+esc(r.mobile)+'</td><td>'+esc(r.national_code)+'</td><td>'+esc(r.status||'')+'</td>'+ (canEdit?'<td><button class="btn sm secondary" data-edit="'+esc(r.id)+'">ویرایش</button></td>':'') +'</tr>'; }).join('') +'</tbody></table></div></div>';
-      if(canEdit){ $('#addCustomer').onclick=function(){ openCustomerModal(); }; $all('[data-edit]').forEach(function(b){ b.onclick=function(){ var id=b.getAttribute('data-edit'); var r=(rows||[]).filter(function(x){return x.id===id;})[0]; openCustomerModal(r); }; }); }
+      rows = rows || [];
+      function statusFa(s){ var v = String(s||'active'); return v==='active' ? 'فعال' : (v==='inactive' ? 'غیرفعال' : v); }
+      function rowHtml(r){
+        return '<tr><td>'+esc(r.full_name)+'</td><td>'+esc(r.mobile)+'</td><td>'+esc(r.national_code)+'</td><td>'+esc(statusFa(r.status))+'</td>'+
+          (canEdit?'<td><button class="btn sm secondary" data-edit="'+esc(r.id)+'">ویرایش</button></td>':'')+'</tr>';
+      }
+      function bindRows(){
+        if(!canEdit) return;
+        $all('[data-edit]').forEach(function(b){
+          b.onclick = function(){
+            var id = b.getAttribute('data-edit');
+            openCustomerModal(rows.filter(function(x){ return x.id === id; })[0]);
+          };
+        });
+      }
+      function paint(q){
+        var list = rows.filter(function(r){
+          if(!q) return true;
+          return [r.full_name, r.mobile, r.phone, r.national_code].some(function(v){ return String(v==null?'':v).toLowerCase().indexOf(q) >= 0; });
+        });
+        $('#custBody').innerHTML = list.map(rowHtml).join('');
+        $('#custCount').textContent = fmtNum(list.length) + ' از ' + fmtNum(rows.length);
+        bindRows();
+      }
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>مشتریان</h2>'+
+        '<div class="toolbar">'+
+          '<input id="custSearch" class="input-sm search-input" type="search" placeholder="جستجو…" aria-label="جستجو در مشتریان">'+
+          '<span class="chip-count" id="custCount"></span>'+
+          (canEdit?'<button class="btn gold sm" id="addCustomer">مشتری جدید</button>':'')+
+        '</div></div>'+
+        '<div class="table-wrap"><table><thead><tr><th>نام</th><th>موبایل</th><th>کد ملی</th><th>وضعیت</th>'+(canEdit?'<th>عملیات</th>':'')+'</tr></thead><tbody id="custBody"></tbody></table></div></div>';
+      paint('');
+      $('#custSearch').addEventListener('input', function(){ paint(this.value.trim().toLowerCase()); });
+      if(canEdit) $('#addCustomer').onclick = function(){ openCustomerModal(); };
     });
   }
   function openCustomerModal(row){
@@ -500,12 +547,43 @@
 
   function simpleCrudView(opts){
     return api(opts.list,{}).then(function(rows){
+      rows = rows || [];
       var canManage = opts.canManage();
       var cols = opts.columns;
-      var head = '<tr>'+cols.map(function(c){return '<th>'+esc(c.label)+'</th>';}).join('')+(canManage?'<th>عملیات</th>':'')+'</tr>';
-      var body = (rows||[]).map(function(r){ return '<tr>'+cols.map(function(c){ var v = typeof c.value==='function'?c.value(r):r[c.key]; return '<td>'+esc(v==null?'':v)+'</td>'; }).join('')+(canManage?'<td><button class="btn sm secondary" data-edit="'+esc(r.id)+'">ویرایش</button></td>':'')+'</tr>'; }).join('');
-      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>'+esc(opts.title)+'</h2><div class="toolbar">'+(canManage?'<button class="btn gold sm" id="addBtn">جدید</button>':'')+'</div></div><div class="table-wrap"><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div></div>';
-      if(canManage){ $('#addBtn').onclick=function(){ opts.openModal(null, rows); }; $all('[data-edit]').forEach(function(b){ b.onclick=function(){ var id=b.getAttribute('data-edit'); var r=(rows||[]).filter(function(x){return x.id===id;})[0]; opts.openModal(r, rows); }; }); }
+      function cellValue(r, c){ return (typeof c.value === 'function') ? c.value(r) : r[c.key]; }
+      function rowHtml(r){
+        return '<tr>' + cols.map(function(c){ var v = cellValue(r, c); return '<td>'+esc(v==null?'':v)+'</td>'; }).join('') +
+          (canManage ? '<td><button class="btn sm secondary" data-edit="'+esc(r.id)+'">ویرایش</button></td>' : '') + '</tr>';
+      }
+      function bindRows(){
+        if(!canManage) return;
+        $all('[data-edit]').forEach(function(b){
+          b.onclick = function(){
+            var id = b.getAttribute('data-edit');
+            var r = rows.filter(function(x){ return x.id === id; })[0];
+            opts.openModal(r, rows);
+          };
+        });
+      }
+      function paint(q){
+        var list = rows.filter(function(r){
+          if(!q) return true;
+          return cols.some(function(c){ var v = cellValue(r, c); return String(v == null ? '' : v).toLowerCase().indexOf(q) >= 0; });
+        });
+        $('#crudBody').innerHTML = list.map(rowHtml).join('');
+        $('#crudCount').textContent = fmtNum(list.length) + ' از ' + fmtNum(rows.length);
+        bindRows();
+      }
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>'+esc(opts.title)+'</h2>'+
+        '<div class="toolbar">'+
+          '<input id="crudSearch" class="input-sm search-input" type="search" placeholder="جستجو…" aria-label="جستجو در جدول">'+
+          '<span class="chip-count" id="crudCount"></span>'+
+          (canManage?'<button class="btn gold sm" id="addBtn">جدید</button>':'')+
+        '</div></div>'+
+        '<div class="table-wrap"><table><thead><tr>'+cols.map(function(c){return '<th>'+esc(c.label)+'</th>';}).join('')+(canManage?'<th>عملیات</th>':'')+'</tr></thead><tbody id="crudBody"></tbody></table></div></div>';
+      paint('');
+      $('#crudSearch').addEventListener('input', function(){ paint(this.value.trim().toLowerCase()); });
+      if(canManage) $('#addBtn').onclick = function(){ opts.openModal(null, rows); };
     });
   }
 
