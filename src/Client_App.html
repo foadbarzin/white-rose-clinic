@@ -22,6 +22,115 @@
   }
   function initial(u){ var s = (u && (u.display_name || u.username)) || '?'; return String(s).trim().charAt(0); }
 
+  /* ---- dashboard period helpers (daily / weekly / monthly + custom range) ---- */
+  function isoAddDays(iso, days){
+    var d = new Date(String(iso) + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + Number(days || 0));
+    return d.toISOString().substring(0, 10);
+  }
+  function monthStart(iso){ return String(iso).substring(0, 8) + '01'; }
+  function dashRange(){
+    if (!state.range) {
+      var to = todayIso();
+      state.range = { from: monthStart(to), to: to, granularity: 'day', preset: 'month' };
+    }
+    return state.range;
+  }
+  function applyDashPreset(id){
+    var to = todayIso(), from = to;
+    if (id === '7d') from = isoAddDays(to, -6);
+    else if (id === '30d') from = isoAddDays(to, -29);
+    else if (id === 'month') from = monthStart(to);
+    var cur = dashRange();
+    state.range = { from: from, to: to, granularity: cur.granularity || 'day', preset: id };
+    loadRoute('dashboard');
+  }
+  function faDate(iso){
+    try { return new Date(String(iso) + 'T00:00:00').toLocaleDateString('fa-IR', { year:'numeric', month:'2-digit', day:'2-digit' }); }
+    catch(e){ return String(iso || ''); }
+  }
+  function compactMoney(n){
+    n = Number(n || 0);
+    var neg = n < 0; n = Math.abs(n);
+    function f(x){ return Number(Math.round(x * 10) / 10).toLocaleString('fa-IR'); }
+    var s;
+    if (n >= 1e9) s = f(n / 1e9) + ' میلیارد';
+    else if (n >= 1e6) s = f(n / 1e6) + ' میلیون';
+    else if (n >= 1e3) s = f(n / 1e3) + ' هزار';
+    else s = fmtNum(n);
+    return (neg ? '−' : '') + s;
+  }
+  function bucketLabelFa(key, gran){
+    try {
+      if (gran === 'month') {
+        return new Date(String(key) + '-01T00:00:00').toLocaleDateString('fa-IR', { year:'numeric', month:'2-digit' });
+      }
+      return new Date(String(key) + 'T00:00:00').toLocaleDateString('fa-IR', { month:'2-digit', day:'2-digit' });
+    } catch(e){ return String(key || ''); }
+  }
+  /* Lightweight inline SVG chart (no external libraries - works inside Apps Script). */
+  function chartSvg(d){
+    var buckets = (d && d.buckets) || [];
+    var gran = (d && d.granularity) || 'day';
+    if (!buckets.length) return '<div class="chart-empty">داده‌ای برای این بازه وجود ندارد.</div>';
+    var hasData = false;
+    buckets.forEach(function(b){ if (Number(b.income || 0) || Number(b.expense || 0)) hasData = true; });
+    if (!hasData) return '<div class="chart-empty">در این بازه تراکنشی ثبت نشده است.</div>';
+
+    var W = 920, H = 320, pl = 72, pr = 18, pt = 16, pb = 46;
+    var iw = W - pl - pr, ih = H - pt - pb, base = pt + ih;
+    var max = 0;
+    buckets.forEach(function(b){ max = Math.max(max, Number(b.income || 0), Number(b.expense || 0)); });
+    if (max <= 0) max = 1;
+    var mag = Math.pow(10, Math.floor(Math.log(max) / Math.LN10));
+    var step = mag / 2;
+    max = Math.ceil(max / step) * step;
+
+    var n = buckets.length, slot = iw / n;
+    var bw = Math.max(2.5, Math.min(26, slot * 0.33));
+    function yv(v){ return pt + ih - (ih * (Math.max(0, Number(v || 0)) / max)); }
+
+    var parts = [];
+    for (var gi = 0; gi <= 4; gi++) {
+      var val = max * gi / 4, yy = yv(val);
+      parts.push('<line class="chart-grid" x1="' + pl + '" y1="' + yy.toFixed(1) + '" x2="' + (W - pr) + '" y2="' + yy.toFixed(1) + '"/>');
+      parts.push('<text class="chart-axis" x="' + (pl - 10) + '" y="' + (yy + 4).toFixed(1) + '" text-anchor="end">' + esc(compactMoney(val)) + '</text>');
+    }
+
+    var bars = [], netPts = [];
+    var every = Math.max(1, Math.ceil(n / 14));
+    buckets.forEach(function(b, i){
+      var cx = pl + slot * i + slot / 2;
+      var inc = Number(b.income || 0), exp = Number(b.expense || 0);
+      var yi = yv(inc), hi = base - yi;
+      var ye = yv(exp), he = base - ye;
+      var xi = cx - bw - 1.5, xe = cx + 1.5;
+      var lbl = bucketLabelFa(b.key, gran);
+      var tip = lbl + ' — درآمد: ' + fmtMoney(inc) + ' | هزینه: ' + fmtMoney(exp) + ' | خالص: ' + fmtMoney(b.net);
+      bars.push('<g><title>' + esc(tip) + '</title>');
+      if (hi >= 0.5) bars.push('<rect class="chart-bar income" x="' + xi.toFixed(1) + '" y="' + yi.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + hi.toFixed(1) + '" rx="2.5"/>');
+      if (he >= 0.5) bars.push('<rect class="chart-bar expense" x="' + xe.toFixed(1) + '" y="' + ye.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + he.toFixed(1) + '" rx="2.5"/>');
+      bars.push('</g>');
+      netPts.push(cx.toFixed(1) + ',' + yv(b.net).toFixed(1));
+      if (i % every === 0) {
+        bars.push('<text class="chart-axis x" x="' + cx.toFixed(1) + '" y="' + (base + 24) + '" text-anchor="middle">' + esc(lbl) + '</text>');
+      }
+    });
+
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="نمودار درآمد و هزینه">' +
+      '<defs>' +
+        '<linearGradient id="chartGold" x1="0" y1="0" x2="0" y2="1">' +
+          '<stop offset="0%" stop-color="#F0D97A"/>' +
+          '<stop offset="100%" stop-color="#C9A227"/>' +
+        '</linearGradient>' +
+      '</defs>' +
+      parts.join('') +
+      '<line class="chart-base" x1="' + pl + '" y1="' + base + '" x2="' + (W - pr) + '" y2="' + base + '"/>' +
+      bars.join('') +
+      (netPts.length > 1 ? '<polyline class="chart-net" points="' + netPts.join(' ') + '"/>' : '') +
+      '</svg>';
+  }
+
   function logoHtml(){
     return (typeof WRC_LOGO_HTML === 'string') ? WRC_LOGO_HTML : '';
   }
@@ -196,38 +305,90 @@
   function card(t,v,h){ return '<div class="card"><h3>'+esc(t)+'</h3><div class="value">'+esc(v)+'</div>'+ (h?'<div class="hint">'+esc(h)+'</div>':'') +'</div>'; }
 
   function viewDashboard(){
-    return api('reports.dashboard',{}).then(function(d){
+    var r0 = dashRange();
+    return Promise.all([
+      api('reports.period', { from: r0.from, to: r0.to, granularity: r0.granularity }),
+      api('reports.dashboard', {}).catch(function(){ return {}; })
+    ]).then(function(res){
+      var d = res[0] || {};
+      var k = res[1] || {};
+      var t = d.totals || {};
       var cards = '';
-      if(state.user.role==='doctor'){
-        cards += card('فاکتورهای ماه', fmtNum(d.month_invoices));
-        cards += card('مبلغ فاکتورهای ماه', fmtMoney(d.month_total));
-        cards += card('پورسانت قابل پرداخت', fmtMoney(d.commission_payable));
-        cards += card('پورسانت پرداخت‌شده', fmtMoney(d.commission_paid));
+      if (state.user.role === 'doctor') {
+        cards += card('فاکتورهای بازه', fmtNum(t.invoices_count));
+        cards += card('مبلغ فاکتورهای بازه', fmtMoney(t.invoices_total));
+        cards += card('پورسانت قابل پرداخت', fmtMoney(k.commission_payable));
+        cards += card('پورسانت پرداخت‌شده', fmtMoney(k.commission_paid));
       } else {
-        cards += card('مشتریان', fmtNum(d.customers_count));
-        cards += card('فاکتورهای ماه', fmtNum(d.month_invoices_count));
-        cards += card('درآمد ماه', fmtMoney(d.month_income_total));
-        cards += card('هزینه ماه', fmtMoney(d.month_expense_total));
-        cards += card('خالص ماه', fmtMoney(d.month_net));
-        cards += card('پورسانت قابل پرداخت', fmtMoney(d.commission_payable_total));
+        cards += card('درآمد بازه', fmtMoney(t.income), 'فاکتور ' + fmtMoney(t.income_payments) + ' + متفرقه ' + fmtMoney(t.income_misc));
+        cards += card('هزینه بازه', fmtMoney(t.expense));
+        cards += card('خالص بازه', fmtMoney(t.net), Number(t.net) < 0 ? 'زیان در این بازه' : 'سود در این بازه');
+        cards += card('فاکتورهای بازه', fmtNum(t.invoices_count), fmtMoney(t.invoices_total));
+        cards += card('پورسانت قابل پرداخت', fmtMoney(k.commission_payable_total !== undefined ? k.commission_payable_total : t.commission_payable));
+        cards += card('مشتریان', fmtNum(k.customers_count));
       }
+      var preset = r0.preset || '';
+      function seg(id, label){ return '<button class="seg-btn' + (preset === id ? ' active' : '') + '" data-preset="' + id + '">' + label + '</button>'; }
       var quick = '';
       [['customers','مشتریان'],['invoices','فاکتورها'],['services','خدمات'],['commissions','پورسانت‌ها'],['reports','گزارش‌ها']].forEach(function(x){
         if (allowed(x[0])) quick += '<button class="btn secondary sm" data-go="'+x[0]+'">'+esc(x[1])+'</button>';
       });
+      /* __DASH_PART2__ */
       $('#content').innerHTML =
-        '<div class="grid cards">'+cards+'</div>'+
-        '<div class="panel" style="margin-top:var(--sp-4)">'+
-          '<div class="panel-header"><h2>خلاصه وضعیت</h2>'+
-            '<div class="row">'+
-              '<span class="badge">امروز: '+esc(todayLabel())+'</span>'+
-              '<span class="badge info">نقش: '+esc(roleLabel(state.user.role))+'</span>'+
+        '<div class="panel">'+
+          '<div class="panel-header"><h2>گزارش بازه</h2>'+
+            '<div class="range-bar">'+
+              '<div class="segmented">'+seg('today','امروز')+seg('7d','۷ روز')+seg('30d','۳۰ روز')+seg('month','این ماه')+'</div>'+
+              '<select id="dashGran" class="input-sm" aria-label="دقت گزارش">'+
+                '<option value="day"'+((d.granularity||'day')==='day'?' selected':'')+'>روزانه</option>'+
+                '<option value="week"'+(d.granularity==='week'?' selected':'')+'>هفتگی</option>'+
+                '<option value="month"'+(d.granularity==='month'?' selected':'')+'>ماهانه</option>'+
+              '</select>'+
+              '<input type="date" id="dashFrom" class="input-sm" value="'+esc(d.from||r0.from)+'" aria-label="از تاریخ">'+
+              '<span class="muted small">تا</span>'+
+              '<input type="date" id="dashTo" class="input-sm" value="'+esc(d.to||r0.to)+'" aria-label="تا تاریخ">'+
+              '<button class="btn gold sm" id="dashApply">اعمال</button>'+
             '</div>'+
           '</div>'+
+          '<div class="grid cards">'+cards+'</div>'+
+          '<div class="chart-card">'+
+            '<div class="chart-head">'+
+              '<div class="chart-title">درآمد، هزینه و خالص</div>'+
+              '<div class="chart-legend">'+
+                '<span><i class="dot income"></i>درآمد</span>'+
+                '<span><i class="dot expense"></i>هزینه</span>'+
+                '<span><i class="dot net"></i>خالص</span>'+
+                '<span class="muted small">'+esc(d.granularity_label||'')+' • '+esc(faDate(d.from||r0.from))+' تا '+esc(faDate(d.to||r0.to))+'</span>'+
+              '</div>'+
+            '</div>'+
+            chartSvg(d)+
+          '</div>'+
+        '</div>'+
+        '<div class="panel"><div class="panel-header"><h2>خلاصه وضعیت</h2>'+
+          '<div class="row">'+
+            '<span class="badge">امروز: '+esc(todayLabel())+'</span>'+
+            '<span class="badge info">نقش: '+esc(roleLabel(state.user.role))+'</span>'+
+          '</div></div>'+
           '<div class="alert info">برای شروع، ابتدا ساختار شیت‌ها (Setup) را اجرا کنید، شناسه شیت و <b>AUTH_PEPPER</b> را در Script Properties تنظیم کنید و در صورت نیاز مدیر اولیه را ایجاد کنید. هیچ داده نمونه‌ای ایجاد نمی‌شود.</div>'+
         '</div>'+
         (quick ? '<div class="panel"><div class="panel-header"><h2>دسترسی سریع</h2></div><div class="row">'+quick+'</div></div>' : '');
+
+      $all('.seg-btn[data-preset]').forEach(function(b){ b.onclick = function(){ applyDashPreset(b.getAttribute('data-preset')); }; });
       $all('[data-go]').forEach(function(b){ b.onclick = function(){ navigate(b.getAttribute('data-go')); }; });
+      var applyBtn = $('#dashApply');
+      if (applyBtn) applyBtn.onclick = function(){
+        var from = $('#dashFrom').value, to = $('#dashTo').value, gran = $('#dashGran').value;
+        if (!from || !to) { toast('بازه تاریخ را کامل کنید', 'error'); return; }
+        if (from > to) { var tmp = from; from = to; to = tmp; }
+        state.range = { from: from, to: to, granularity: gran, preset: '' };
+        loadRoute('dashboard');
+      };
+      var granSel = $('#dashGran');
+      if (granSel) granSel.onchange = function(){
+        var cur = dashRange();
+        state.range = { from: cur.from, to: cur.to, granularity: this.value, preset: cur.preset || '' };
+        loadRoute('dashboard');
+      };
     });
   }
 

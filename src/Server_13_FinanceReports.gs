@@ -97,5 +97,146 @@ WRC.ReportsSvc = (function(){
     return { invoice_income: invoiceIncome, misc_income: miscIncome, income_total: invoiceIncome+miscIncome, expense_total: expenseTotal, net: (invoiceIncome+miscIncome)-expenseTotal, invoices_by_status: byStatus, commissions_amount_by_status: commByStatus };
   }
 
-  return { dashboard: dashboard, summary: summary };
+  /* =====================================================================
+     Period reporting (dashboard charts): daily / weekly / monthly buckets
+     inside an explicit [from..to] range. Dates are treated as UTC calendar
+     days (stored format is plain yyyy-MM-dd); Iranian weeks start Saturday.
+     ===================================================================== */
+  var GRAN_LABELS = { day: 'روزانه', week: 'هفتگی', month: 'ماهانه' };
+  var GRAN_ORDER = ['day', 'week', 'month'];
+  var MAX_BUCKETS = 62;
+
+  function toDay(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+    if (!m) return null;
+    return new Date(Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10)));
+  }
+  function dayStr(d) { return d.toISOString().substring(0, 10); }
+  function addDays(d, n) { return new Date(d.getTime() + n * 86400000); }
+  function startOfMonth(d) { return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)); }
+  function startOfWeek(d) { var off = (d.getUTCDay() + 1) % 7; return new Date(d.getTime() - off * 86400000); }
+  function startOfBucket(d, g) {
+    if (g === 'week') return startOfWeek(d);
+    if (g === 'month') return startOfMonth(d);
+    return d;
+  }
+  function nextBucket(d, g) {
+    if (g === 'week') return addDays(d, 7);
+    if (g === 'month') return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+    return addDays(d, 1);
+  }
+  function bucketLabel(key, g) {
+    if (g === 'month') return key.substring(0, 7);
+    return key.substring(5);
+  }
+  function buildBuckets(from, to, g) {
+    var out = [], cur = startOfBucket(from, g), guard = 0;
+    while (cur.getTime() <= to.getTime() && guard < 420) {
+      out.push(dayStr(cur));
+      cur = nextBucket(cur, g);
+      guard++;
+    }
+    return out;
+  }
+
+  function period(payload, ctx) {
+    payload = payload || {};
+    var isDoctor = WRC.Permissions.isDoctor(ctx.user);
+    WRC.Permissions.assert(
+      isDoctor ? 'dashboard.read.own'
+        : (WRC.Permissions.isAdmin(ctx.user) ? 'reports.read.financial_sensitive' : 'reports.read.operational'),
+      ctx.user
+    );
+
+    var today = Utilities.formatDate(new Date(), WRC.Config.APP.TIMEZONE, 'yyyy-MM-dd');
+    var toD = toDay(payload.to) || toDay(today);
+    var fromD = toDay(payload.from) || startOfMonth(toD);
+    if (fromD.getTime() > toD.getTime()) { var swap = fromD; fromD = toD; toD = swap; }
+
+    var g = String(payload.granularity || 'day');
+    if (GRAN_ORDER.indexOf(g) < 0) g = 'day';
+    while (buildBuckets(fromD, toD, g).length > MAX_BUCKETS && g !== 'month') {
+      g = (g === 'day') ? 'week' : 'month';
+    }
+
+    var keys = buildBuckets(fromD, toD, g);
+    var index = {};
+    keys.forEach(function (k, i) { index[k] = i; });
+    var buckets = keys.map(function (k) {
+      return { key: k, label: bucketLabel(k, g), income: 0, expense: 0, net: 0, invoices_count: 0, invoices_total: 0 };
+    });
+
+    function slotOf(dateStr) {
+      var d = toDay(dateStr);
+      if (!d) return -1;
+      if (d.getTime() < fromD.getTime() || d.getTime() > toD.getTime()) return -1;
+      var k = dayStr(startOfBucket(d, g));
+      return index.hasOwnProperty(k) ? index[k] : -1;
+    }
+
+    var totals = {
+      income_payments: 0, income_misc: 0, income: 0, expense: 0, net: 0,
+      invoices_count: 0, invoices_total: 0, commission_payable: 0
+    };
+
+    if (isDoctor) {
+      var myId = String(ctx.user.linked_doctor_id || '');
+      WRC.SheetRepo.readAll(WRC.Config.SHEET_NAMES.INVOICES).filter(function (i) {
+        return String(i.doctor_id || '') === myId &&
+          [WRC.Config.INVOICE_STATUS.ISSUED, WRC.Config.INVOICE_STATUS.PARTIALLY_PAID, WRC.Config.INVOICE_STATUS.PAID]
+            .indexOf(String(i.status)) >= 0;
+      }).forEach(function (i) {
+        var b = slotOf(i.invoice_date); if (b < 0) return;
+        var amt = WRC.Utils.toMoneyInt(i.total_toman);
+        buckets[b].income += amt; buckets[b].invoices_count++; buckets[b].invoices_total += amt;
+        totals.income += amt; totals.invoices_count++; totals.invoices_total += amt;
+      });
+      buckets.forEach(function (b) { b.net = b.income - b.expense; });
+      totals.net = totals.income - totals.expense;
+      return {
+        from: dayStr(fromD), to: dayStr(toD), granularity: g, granularity_label: GRAN_LABELS[g],
+        role: 'doctor', today: today, buckets: buckets, totals: totals
+      };
+    }
+
+    WRC.SheetRepo.readAll(WRC.Config.SHEET_NAMES.PAYMENTS).forEach(function (p) {
+      if (String(p.status) !== WRC.Config.PAYMENT_STATUS.RECORDED) return;
+      var b = slotOf(p.payment_date); if (b < 0) return;
+      var amt = WRC.Utils.toMoneyInt(p.amount_toman);
+      buckets[b].income += amt; totals.income_payments += amt; totals.income += amt;
+    });
+    WRC.SheetRepo.readAll(WRC.Config.SHEET_NAMES.REVENUE).forEach(function (r) {
+      if (String(r.status) !== 'active') return;
+      var b = slotOf(r.date); if (b < 0) return;
+      var amt = WRC.Utils.toMoneyInt(r.amount_toman);
+      buckets[b].income += amt; totals.income_misc += amt; totals.income += amt;
+    });
+    WRC.SheetRepo.readAll(WRC.Config.SHEET_NAMES.EXPENSES).forEach(function (e) {
+      if (String(e.status) !== 'active') return;
+      var b = slotOf(e.date); if (b < 0) return;
+      var amt = WRC.Utils.toMoneyInt(e.amount_toman);
+      buckets[b].expense += amt; totals.expense += amt;
+    });
+    WRC.SheetRepo.readAll(WRC.Config.SHEET_NAMES.INVOICES).forEach(function (i) {
+      if (String(i.status) === WRC.Config.INVOICE_STATUS.VOID) return;
+      var b = slotOf(i.invoice_date); if (b < 0) return;
+      var amt = WRC.Utils.toMoneyInt(i.total_toman);
+      buckets[b].invoices_count++; buckets[b].invoices_total += amt;
+      totals.invoices_count++; totals.invoices_total += amt;
+    });
+    WRC.SheetRepo.readAll(WRC.Config.SHEET_NAMES.COMMISSIONS).forEach(function (c) {
+      if (String(c.status) !== WRC.Config.COMMISSION_STATUS.PAYABLE) return;
+      totals.commission_payable += WRC.Utils.toMoneyInt(c.commission_amount_toman);
+    });
+
+    buckets.forEach(function (b) { b.net = b.income - b.expense; });
+    totals.net = totals.income - totals.expense;
+
+    return {
+      from: dayStr(fromD), to: dayStr(toD), granularity: g, granularity_label: GRAN_LABELS[g],
+      role: ctx.user.role, today: today, buckets: buckets, totals: totals
+    };
+  }
+
+  return { dashboard: dashboard, summary: summary, period: period };
 })();
