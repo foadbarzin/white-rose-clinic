@@ -74,6 +74,7 @@
     if (!state.appVersion) return;
     var label = 'v' + state.appVersion;
     $all('.js-app-version').forEach(function(el){ el.textContent = label; });
+    try { document.title = 'ROSE SEFID BEAUTY CLINIC · ' + label; } catch(e){}
   }
   /* ---- smart insights ---- */
   function deltaChip(label, pct, goodWhenUp){
@@ -328,6 +329,7 @@
             '<div class="page-title-wrap"><span class="topbar-logo" aria-hidden="true">'+logoMarkHtml()+'</span>'+
               '<div class="page-title" id="pageTitle"></div></div>'+
             '<div class="user">'+
+              '<span class="badge version-badge" title="نسخه برنامه"><span class="js-app-version">—</span></span>'+
               '<span class="badge today-chip" title="تاریخ امروز">'+esc(todayLabel())+'</span>'+
               '<button type="button" class="btn secondary sm icon-btn" id="refreshBtn" title="به‌روزرسانی" aria-label="به‌روزرسانی">⟳</button>'+
               '<span class="badge info">'+esc(roleLabel(state.user.role))+'</span>'+
