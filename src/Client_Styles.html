@@ -166,6 +166,55 @@ body.modal-open{overflow:hidden}
 }
 .nav button.active::before{opacity:1;background:var(--color-gold)}
 
+/* collapsible submenu (عملیات) */
+.nav-group{display:flex;flex-direction:column;gap:2px}
+.nav-group-head{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  width:100%;padding:10px 12px;text-align:start;cursor:pointer;
+  background:transparent;border:1px solid transparent;border-radius:var(--radius-sm);
+  color:var(--color-ivory);font-size:var(--fs-md);font-weight:700;
+  transition:background .18s var(--ease),border-color .18s var(--ease),color .18s var(--ease);
+}
+.nav-group-head:hover{
+  background:rgba(201,162,39,.09);
+  border-color:rgba(201,162,39,.22);
+  color:var(--color-gold-light);
+}
+.nav-group-head .chev{
+  font-size:.65rem;color:var(--color-text-dim);
+  transition:transform .2s var(--ease),color .2s var(--ease);
+}
+.nav-group.open .nav-group-head .chev{transform:rotate(180deg);color:var(--color-gold)}
+.nav-sub{
+  display:none;flex-direction:column;gap:2px;
+  margin:2px 0 6px;padding-inline-start:10px;
+  border-inline-start:1px solid rgba(201,162,39,.22);
+}
+.nav-group.open .nav-sub{display:flex}
+.nav-sub button{
+  width:100%;padding:8px 10px;text-align:start;
+  background:transparent;border:1px solid transparent;border-radius:var(--radius-xs);
+  color:var(--color-text-muted);font-size:var(--fs-sm);font-weight:600;cursor:pointer;
+  transition:background .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease);
+}
+.nav-sub button::before{display:none}
+.nav-sub button:hover{background:rgba(201,162,39,.08);color:var(--color-gold-light)}
+.nav-sub button.active{
+  background:rgba(201,162,39,.14);
+  border-color:var(--color-border-strong);
+  color:var(--color-gold-light);
+}
+
+@media (max-width:900px){
+  .nav{flex-wrap:wrap}
+  .nav-group{flex:1 0 100%}
+  .nav-group.open .nav-sub{
+    flex-direction:row;flex-wrap:wrap;gap:6px;
+    border-inline-start:none;padding-inline-start:0;margin:0 0 6px;
+  }
+  .nav-sub button{width:auto;white-space:nowrap}
+}
+
 .sidebar-footer{
   padding:12px;border-top:1px solid var(--color-line);
   font-size:var(--fs-sm);color:var(--color-text-muted);

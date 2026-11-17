@@ -176,21 +176,36 @@
   var routes = [
     {id:'dashboard', title:'داشبورد', roles:['admin','operator','doctor']},
     {id:'customers', title:'مشتریان', roles:['admin','operator','doctor']},
-    {id:'doctors', title:'پزشکان', roles:['admin','operator']},
-    {id:'operators', title:'اپراتورها', roles:['admin','operator']},
-    {id:'services', title:'خدمات', roles:['admin','operator']},
-    {id:'invoices', title:'فاکتورها', roles:['admin','operator','doctor']},
+    {id:'operations', title:'عملیات', roles:['admin','operator'], children:[
+      {id:'doctors', title:'تعریف پزشک', roles:['admin','operator']},
+      {id:'operators', title:'تعریف اپراتور', roles:['admin','operator']},
+      {id:'services', title:'تعریف خدمات', roles:['admin','operator']},
+      {id:'commissionRules', title:'تعریف پورسانت', roles:['admin']}
+    ]},
+    {id:'invoices', title:'ثبت فاکتور', roles:['admin','operator','doctor']},
     {id:'expenses', title:'هزینه‌ها', roles:['admin','operator']},
     {id:'revenue', title:'درآمدهای متفرقه', roles:['admin']},
     {id:'commissions', title:'پورسانت‌ها', roles:['admin','doctor']},
-    {id:'commissionRules', title:'قواعد پورسانت', roles:['admin']},
     {id:'reports', title:'گزارش‌ها', roles:['admin','operator']},
     {id:'users', title:'کاربران', roles:['admin']},
     {id:'settings', title:'تنظیمات', roles:['admin']}
   ];
 
+  function routeMeta(routeId){
+    for (var i = 0; i < routes.length; i++) {
+      var r = routes[i];
+      if (r.children && r.children.length) {
+        for (var j = 0; j < r.children.length; j++) {
+          if (r.children[j].id === routeId) return r.children[j];
+        }
+      } else if (r.id === routeId) {
+        return r;
+      }
+    }
+    return null;
+  }
   function allowed(routeId){
-    var r = routes.filter(function(x){return x.id===routeId;})[0];
+    var r = routeMeta(routeId);
     if(!r || !state.user) return false;
     return r.roles.indexOf(state.user.role) >= 0;
   }
@@ -223,7 +238,21 @@
   }
 
   function renderShell(app){
-    var navHtml = routes.filter(function(r){ return allowed(r.id); }).map(function(r){
+    var navHtml = routes.map(function(r){
+      if (r.children && r.children.length) {
+        var kids = r.children.filter(function(c){ return allowed(c.id); });
+        if (!kids.length) return '';
+        var open = kids.some(function(c){ return c.id === state.route; });
+        return '<div class="nav-group'+(open ? ' open' : '')+'">'+
+          '<button type="button" class="nav-group-head">'+
+            '<span>'+esc(r.title)+'</span><span class="chev" aria-hidden="true">▾</span>'+
+          '</button>'+
+          '<div class="nav-sub">'+
+            kids.map(function(c){ return '<button type="button" data-route="'+c.id+'" class="'+(state.route===c.id?'active':'')+'">'+esc(c.title)+'</button>'; }).join('')+
+          '</div>'+
+        '</div>';
+      }
+      if (!allowed(r.id)) return '';
       return '<button data-route="'+r.id+'" class="'+(state.route===r.id?'active':'')+'">'+esc(r.title)+'</button>';
     }).join('');
     app.innerHTML =
@@ -246,13 +275,27 @@
           '<div class="content" id="content"><div class="panel">در حال بارگذاری...</div></div>'+
         '</main>'+
       '</div>';
+    $all('.nav-group-head').forEach(function(b){
+      b.onclick = function(){ b.parentNode.classList.toggle('open'); };
+    });
     $all('.nav button[data-route]').forEach(function(b){ b.onclick = function(){ navigate(b.getAttribute('data-route')); }; });
     $('#logoutBtn').onclick = doLogout;
     navigate(state.route || 'dashboard');
   }
 
   function roleLabel(r){ return r==='admin'?'مدیر':(r==='operator'?'اپراتور':(r==='doctor'?'پزشک':r)); }
-  function navigate(routeId){ if(!allowed(routeId)) routeId='dashboard'; state.route = routeId; $all('.nav button[data-route]').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-route')===routeId); }); var r=routes.filter(function(x){return x.id===routeId;})[0]; if($('#pageTitle')) $('#pageTitle').textContent = r ? r.title : ''; loadRoute(routeId); }
+  function navigate(routeId){
+    if(!allowed(routeId)) routeId='dashboard';
+    state.route = routeId;
+    $all('.nav button[data-route]').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-route')===routeId); });
+    $all('.nav-group').forEach(function(g){
+      var inside = $all('button[data-route]', g).some(function(b){ return b.getAttribute('data-route')===routeId; });
+      if (inside) g.classList.add('open');
+    });
+    var r = routeMeta(routeId);
+    if($('#pageTitle')) $('#pageTitle').textContent = r ? r.title : '';
+    loadRoute(routeId);
+  }
 
   function doLogin(){
     var u=$('#loginUser').value.trim(), p=$('#loginPass').value;
@@ -330,7 +373,7 @@
       var preset = r0.preset || '';
       function seg(id, label){ return '<button class="seg-btn' + (preset === id ? ' active' : '') + '" data-preset="' + id + '">' + label + '</button>'; }
       var quick = '';
-      [['customers','مشتریان'],['invoices','فاکتورها'],['services','خدمات'],['commissions','پورسانت‌ها'],['reports','گزارش‌ها']].forEach(function(x){
+      [['customers','مشتریان'],['invoices','ثبت فاکتور'],['services','تعریف خدمات'],['commissions','پورسانت‌ها'],['reports','گزارش‌ها']].forEach(function(x){
         if (allowed(x[0])) quick += '<button class="btn secondary sm" data-go="'+x[0]+'">'+esc(x[1])+'</button>';
       });
       /* __DASH_PART2__ */
@@ -416,9 +459,9 @@
     });
   }
 
-  function viewDoctors(){ return simpleCrudView({ title:'پزشکان', list:'doctors.list', canManage:function(){return state.user.role==='admin';}, columns:[{label:'نام',key:'full_name'},{label:'تخصص',key:'specialty'},{label:'موبایل',key:'mobile'}], openModal:function(row){ row=row||{}; showModal('<h3>'+(row.id?'ویرایش پزشک':'پزشک جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام</label><input id="f1" value="'+esc(row.full_name||'')+'"></div><div class="form-group"><label>تخصص</label><input id="f2" value="'+esc(row.specialty||'')+'"></div><div class="form-group"><label>موبایل</label><input id="f3" value="'+esc(row.mobile||'')+'"></div></div><div class="form-group"><label>یادداشت</label><input id="f4" value="'+esc(row.notes||'')+'"></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api(row.id?'doctors.update':'doctors.create',{id:row.id,full_name:$('#f1').value,specialty:$('#f2').value,mobile:$('#f3').value,notes:$('#f4').value}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('doctors');}).catch(function(e){toast(e.message||'خطا','error');}); };}); } }); }
-  function viewOperators(){ return simpleCrudView({ title:'اپراتورها', list:'operators.list', canManage:function(){return state.user.role==='admin';}, columns:[{label:'نام',key:'full_name'},{label:'عنوان',key:'role_title'},{label:'موبایل',key:'mobile'}], openModal:function(row){ row=row||{}; showModal('<h3>'+(row.id?'ویرایش اپراتور':'اپراتور جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام</label><input id="f1" value="'+esc(row.full_name||'')+'"></div><div class="form-group"><label>عنوان نقش</label><input id="f2" value="'+esc(row.role_title||'')+'"></div><div class="form-group"><label>موبایل</label><input id="f3" value="'+esc(row.mobile||'')+'"></div></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api(row.id?'operators.update':'operators.create',{id:row.id,full_name:$('#f1').value,role_title:$('#f2').value,mobile:$('#f3').value}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('operators');}).catch(function(e){toast(e.message||'خطا','error');}); };}); } }); }
-  function viewServices(){ return simpleCrudView({ title:'خدمات', list:'services.list', canManage:function(){return state.user.role==='admin';}, columns:[{label:'نام',key:'name'},{label:'دسته',key:'category'},{label:'قیمت پایه',value:function(r){return fmtMoney(r.base_price_toman);}},{label:'مشمول مالیات',value:function(r){return String(r.taxable)==='false'?'خیر':'بله';}}], openModal:function(row){ row=row||{}; showModal('<h3>'+(row.id?'ویرایش خدمت':'خدمت جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام</label><input id="f1" value="'+esc(row.name||'')+'"></div><div class="form-group"><label>دسته</label><input id="f2" value="'+esc(row.category||'')+'"></div><div class="form-group"><label>قیمت پایه (تومان)</label><input id="f3" type="number" value="'+esc(row.base_price_toman||0)+'"></div><div class="form-group"><label>نرخ مالیات پیش‌فرض (%)</label><input id="f4" type="number" value="'+esc(row.default_tax_rate||0)+'"></div></div><div class="form-group"><label><input type="checkbox" id="f5" '+(String(row.taxable)!=='false'?'checked':'')+'> مشمول مالیات</label></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api(row.id?'services.update':'services.create',{id:row.id,name:$('#f1').value,category:$('#f2').value,base_price_toman:Number($('#f3').value||0),default_tax_rate:$('#f4').value,taxable:$('#f5').checked}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('services');}).catch(function(e){toast(e.message||'خطا','error');}); };}); } }); }
+  function viewDoctors(){ return simpleCrudView({ title:'تعریف پزشک', list:'doctors.list', canManage:function(){return state.user.role==='admin';}, columns:[{label:'نام',key:'full_name'},{label:'تخصص',key:'specialty'},{label:'موبایل',key:'mobile'}], openModal:function(row){ row=row||{}; showModal('<h3>'+(row.id?'ویرایش پزشک':'پزشک جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام</label><input id="f1" value="'+esc(row.full_name||'')+'"></div><div class="form-group"><label>تخصص</label><input id="f2" value="'+esc(row.specialty||'')+'"></div><div class="form-group"><label>موبایل</label><input id="f3" value="'+esc(row.mobile||'')+'"></div></div><div class="form-group"><label>یادداشت</label><input id="f4" value="'+esc(row.notes||'')+'"></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api(row.id?'doctors.update':'doctors.create',{id:row.id,full_name:$('#f1').value,specialty:$('#f2').value,mobile:$('#f3').value,notes:$('#f4').value}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('doctors');}).catch(function(e){toast(e.message||'خطا','error');}); };}); } }); }
+  function viewOperators(){ return simpleCrudView({ title:'تعریف اپراتور', list:'operators.list', canManage:function(){return state.user.role==='admin';}, columns:[{label:'نام',key:'full_name'},{label:'عنوان',key:'role_title'},{label:'موبایل',key:'mobile'}], openModal:function(row){ row=row||{}; showModal('<h3>'+(row.id?'ویرایش اپراتور':'اپراتور جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام</label><input id="f1" value="'+esc(row.full_name||'')+'"></div><div class="form-group"><label>عنوان نقش</label><input id="f2" value="'+esc(row.role_title||'')+'"></div><div class="form-group"><label>موبایل</label><input id="f3" value="'+esc(row.mobile||'')+'"></div></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api(row.id?'operators.update':'operators.create',{id:row.id,full_name:$('#f1').value,role_title:$('#f2').value,mobile:$('#f3').value}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('operators');}).catch(function(e){toast(e.message||'خطا','error');}); };}); } }); }
+  function viewServices(){ return simpleCrudView({ title:'تعریف خدمات', list:'services.list', canManage:function(){return state.user.role==='admin';}, columns:[{label:'نام',key:'name'},{label:'دسته',key:'category'},{label:'قیمت پایه',value:function(r){return fmtMoney(r.base_price_toman);}},{label:'مشمول مالیات',value:function(r){return String(r.taxable)==='false'?'خیر':'بله';}}], openModal:function(row){ row=row||{}; showModal('<h3>'+(row.id?'ویرایش خدمت':'خدمت جدید')+'</h3><div class="form-grid"><div class="form-group"><label>نام</label><input id="f1" value="'+esc(row.name||'')+'"></div><div class="form-group"><label>دسته</label><input id="f2" value="'+esc(row.category||'')+'"></div><div class="form-group"><label>قیمت پایه (تومان)</label><input id="f3" type="number" value="'+esc(row.base_price_toman||0)+'"></div><div class="form-group"><label>نرخ مالیات پیش‌فرض (%)</label><input id="f4" type="number" value="'+esc(row.default_tax_rate||0)+'"></div></div><div class="form-group"><label><input type="checkbox" id="f5" '+(String(row.taxable)!=='false'?'checked':'')+'> مشمول مالیات</label></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api(row.id?'services.update':'services.create',{id:row.id,name:$('#f1').value,category:$('#f2').value,base_price_toman:Number($('#f3').value||0),default_tax_rate:$('#f4').value,taxable:$('#f5').checked}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('services');}).catch(function(e){toast(e.message||'خطا','error');}); };}); } }); }
   function viewExpenses(){
     if(state.user.role==='doctor'){ $('#content').innerHTML='<div class="panel">دسترسی ندارید.</div>'; return; }
     return api('expenses.list',{}).then(function(rows){
@@ -437,7 +480,7 @@
 
   function viewCommissionRules(){
     return api('commissionRules.list',{}).then(function(rows){
-      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>قواعد پورسانت</h2><div class="toolbar"><button class="btn gold sm" id="addRule">قاعده جدید</button></div></div><div class="alert info">percent یا fixed_per_unit. برای fixed_per_unit: <b>commission_amount = fixed_amount_per_unit × quantity</b> و quantity از InvoiceItems.quantity خوانده می‌شود.</div><div class="table-wrap"><table><thead><tr><th>ذینفع</th><th>شخص</th><th>خدمت</th><th>نوع</th><th>مقدار</th><th>اولویت</th><th>فعال</th></tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr><td>'+esc(r.applies_to)+'</td><td>'+esc(r.person_id||'همه')+'</td><td>'+esc(r.service_id||'همه')+'</td><td>'+esc(r.type)+'</td><td>'+esc(r.value)+'</td><td>'+esc(r.priority)+'</td><td>'+esc(String(r.is_active)==='false'?'خیر':'بله')+'</td></tr>'; }).join('') +'</tbody></table></div></div>';
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>تعریف پورسانت</h2><div class="toolbar"><button class="btn gold sm" id="addRule">قاعده جدید</button></div></div><div class="alert info">percent یا fixed_per_unit. برای fixed_per_unit: <b>commission_amount = fixed_amount_per_unit × quantity</b> و quantity از InvoiceItems.quantity خوانده می‌شود.</div><div class="table-wrap"><table><thead><tr><th>ذینفع</th><th>شخص</th><th>خدمت</th><th>نوع</th><th>مقدار</th><th>اولویت</th><th>فعال</th></tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr><td>'+esc(r.applies_to)+'</td><td>'+esc(r.person_id||'همه')+'</td><td>'+esc(r.service_id||'همه')+'</td><td>'+esc(r.type)+'</td><td>'+esc(r.value)+'</td><td>'+esc(r.priority)+'</td><td>'+esc(String(r.is_active)==='false'?'خیر':'بله')+'</td></tr>'; }).join('') +'</tbody></table></div></div>';
       $('#addRule').onclick=function(){ showModal('<h3>قاعده پورسانت</h3><div class="form-grid"><div class="form-group"><label>ذینفع</label><select id="r1"><option value="doctor">doctor</option><option value="operator">operator</option></select></div><div class="form-group"><label>شناسه شخص (اختیاری)</label><input id="r2"></div><div class="form-group"><label>شناسه خدمت (اختیاری)</label><input id="r3"></div><div class="form-group"><label>نوع</label><select id="r4"><option value="percent">percent</option><option value="fixed_per_unit">fixed_per_unit</option></select></div><div class="form-group"><label>مقدار (درصد یا مبلغ واحد)</label><input id="r5" type="number"></div><div class="form-group"><label>اولویت</label><input id="r6" type="number" value="100"></div></div><div class="row"><button class="btn gold" id="sv">ذخیره</button><button class="btn secondary" id="cn">انصراف</button></div>', function(close){ $('#cn').onclick=close; $('#sv').onclick=function(){ api('commissionRules.upsert',{applies_to:$('#r1').value,person_id:$('#r2').value,service_id:$('#r3').value,type:$('#r4').value,value:$('#r5').value,priority:$('#r6').value}).then(function(){toast('ذخیره شد','success'); close(); loadRoute('commissionRules');}).catch(function(e){toast(e.message||'خطا','error');}); };}); };
     });
   }
@@ -489,7 +532,7 @@
       var cName = {};
       customers.forEach(function(c){ cName[String(c.id)] = c.full_name || ''; });
       function money(n){ var v = Number(n||0); return v ? fmtMoney(v) : '<span class="muted">—</span>'; }
-      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>فاکتورها</h2><div class="toolbar">'+(canCreate?'<button class="btn gold sm" id="newInv">فاکتور جدید</button>':'')+'</div></div><div class="table-wrap"><table><thead><tr><th>شماره</th><th>تاریخ</th><th>مشتری</th><th>جمع</th><th>پرداخت</th><th>مانده</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>'+ rows.map(function(r){ return '<tr><td>'+esc(r.invoice_no||'-')+'</td><td>'+esc(r.invoice_date)+'</td><td>'+esc(cName[String(r.customer_id)]||'—')+'</td><td>'+fmtMoney(r.total_toman)+'</td><td>'+money(r.paid_toman)+'</td><td>'+money(r.balance_toman)+'</td><td>'+statusBadge(r.status)+'</td><td><button class="btn sm secondary" data-view="'+esc(r.id)+'">مشاهده</button></td></tr>'; }).join('') +'</tbody></table></div></div>';
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>ثبت فاکتور</h2><div class="toolbar">'+(canCreate?'<button class="btn gold sm" id="newInv">فاکتور جدید</button>':'')+'</div></div><div class="table-wrap"><table><thead><tr><th>شماره</th><th>تاریخ</th><th>مشتری</th><th>جمع</th><th>پرداخت</th><th>مانده</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>'+ rows.map(function(r){ return '<tr><td>'+esc(r.invoice_no||'-')+'</td><td>'+esc(r.invoice_date)+'</td><td>'+esc(cName[String(r.customer_id)]||'—')+'</td><td>'+fmtMoney(r.total_toman)+'</td><td>'+money(r.paid_toman)+'</td><td>'+money(r.balance_toman)+'</td><td>'+statusBadge(r.status)+'</td><td><button class="btn sm secondary" data-view="'+esc(r.id)+'">مشاهده</button></td></tr>'; }).join('') +'</tbody></table></div></div>';
       if(canCreate) $('#newInv').onclick=function(){ openInvoiceModal(null, customers, doctors, services); };
       $all('[data-view]').forEach(function(b){ b.onclick=function(){ openInvoiceDetail(b.getAttribute('data-view'), customers, doctors, services); }; });
     });
