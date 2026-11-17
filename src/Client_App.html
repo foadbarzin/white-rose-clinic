@@ -15,6 +15,12 @@
   function fmtNum(n){ n=Number(n||0); if(isNaN(n)) n=0; return n.toLocaleString('fa-IR'); }
   function badge(text, type){ return '<span class="badge '+(type||'')+'">'+esc(text)+'</span>'; }
   function todayIso(){ var d=new Date(); var y=d.getFullYear(),m=('0'+(d.getMonth()+1)).slice(-2),da=('0'+d.getDate()).slice(-2); return y+'-'+m+'-'+da; }
+  // Jalali (Shamsi) date label for UI display; falls back to ISO when Intl is unavailable.
+  function todayLabel(){
+    try { return new Date().toLocaleDateString('fa-IR', { year:'numeric', month:'long', day:'numeric' }); }
+    catch(e){ return todayIso(); }
+  }
+  function initial(u){ var s = (u && (u.display_name || u.username)) || '?'; return String(s).trim().charAt(0); }
 
   function logoHtml(){
     return (typeof WRC_LOGO_HTML === 'string') ? WRC_LOGO_HTML : '';
@@ -37,9 +43,22 @@
   function setToken(t){ state.token = t||''; if(t) sessionStorage.setItem('wrc_token', t); else sessionStorage.removeItem('wrc_token'); }
 
   function toast(msg, type){
-    var el = $('#toast'); if(!el){ el=document.createElement('div'); el.id='toast'; el.style.position='fixed'; el.style.bottom='16px'; el.style.left='16px'; el.style.zIndex='100'; document.body.appendChild(el); }
-    var item = document.createElement('div'); item.className='alert '+(type||'info'); item.style.minWidth='220px'; item.style.marginTop='8px'; item.textContent=msg; el.appendChild(item);
-    setTimeout(function(){ try{el.removeChild(item);}catch(e){} }, 3500);
+    var el = $('#toast');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'toast';
+      el.setAttribute('role','status');
+      el.setAttribute('aria-live','polite');
+      document.body.appendChild(el);
+    }
+    var item = document.createElement('div');
+    item.className = 'alert ' + (type||'info');
+    item.textContent = msg;
+    el.appendChild(item);
+    setTimeout(function(){
+      try{ item.classList.add('hide'); }catch(e){}
+      setTimeout(function(){ try{ el.removeChild(item); }catch(e){} }, 220);
+    }, 3400);
   }
 
   var routes = [
@@ -76,15 +95,19 @@
       '<div id="loginAlert"></div>'+
       '<div class="form-group"><label>نام کاربری</label><input id="loginUser" autocomplete="username"></div>'+
       '<div class="form-group"><label>رمز عبور</label><input id="loginPass" type="password" autocomplete="current-password"></div>'+
-      '<div class="row"><button class="btn gold" id="loginBtn">ورود</button><span class="spacer"></span></div>'+
-      '<hr class="sep"><div class="small muted">راه‌اندازی اولیه (فقط در صورت نبود مدیر فعال):</div>'+
-      '<div class="form-group"><label>نام کاربری مدیر</label><input id="bootUser"></div>'+
-      '<div class="form-group"><label>رمز عبور مدیر</label><input id="bootPass" type="password"></div>'+
+      '<div class="row"><button class="btn gold block" id="loginBtn">ورود به سامانه</button></div>'+
+      '<details class="setup-details"><summary>راه‌اندازی اولیه (فقط در صورت نبود مدیر فعال)</summary>'+
+      '<div class="form-group"><label>نام کاربری مدیر</label><input id="bootUser" autocomplete="off"></div>'+
+      '<div class="form-group"><label>رمز عبور مدیر</label><input id="bootPass" type="password" autocomplete="new-password"></div>'+
       '<div class="form-group"><label>نام نمایشی</label><input id="bootName" value="مدیر سیستم"></div>'+
-      '<button class="btn secondary sm" id="bootBtn">ایجاد مدیر اولیه</button>'+
+      '<button class="btn secondary sm block" id="bootBtn">ایجاد مدیر اولیه</button>'+
+      '</details>'+
+      '<div class="login-hint"><span>ورود با نام کاربری و رمز عبور</span><span>نسخه ۰.۲</span></div>'+
       '</div></div>';
     $('#loginBtn').onclick = doLogin;
     $('#bootBtn').onclick = doBootstrap;
+    $('#loginPass').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ doLogin(); } });
+    $('#loginUser').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ $('#loginPass').focus(); } });
   }
 
   function renderShell(app){
@@ -96,10 +119,18 @@
         '<aside class="sidebar">'+
           '<div class="brand"><div class="logo">'+logoHtml()+'</div><div><div class="title">ROSE SEFID</div><div class="subtitle">BEAUTY CLINIC</div></div></div>'+
           '<nav class="nav">'+navHtml+'</nav>'+
-          '<div class="sidebar-footer"><div>'+esc(state.user.display_name||state.user.username)+'</div><div class="muted small">'+esc(roleLabel(state.user.role))+'</div><button class="btn secondary sm" id="logoutBtn" style="margin-top:8px;width:100%">خروج</button></div>'+
+          '<div class="sidebar-footer">'+
+            '<div class="user-chip"><span class="avatar">'+esc(initial(state.user))+'</span>'+
+              '<span class="user-meta"><span class="user-name">'+esc(state.user.display_name||state.user.username)+'</span>'+
+              '<span class="user-role">'+esc(roleLabel(state.user.role))+'</span></span></div>'+
+            '<button class="btn secondary sm block" id="logoutBtn">خروج</button>'+
+          '</div>'+
         '</aside>'+
         '<main class="main">'+
-          '<div class="topbar"><div class="page-title" id="pageTitle"></div><div class="user"><span>'+esc(state.user.username)+'</span></div></div>'+
+          '<div class="topbar"><div class="page-title" id="pageTitle"></div>'+
+            '<div class="user"><span class="badge info">'+esc(roleLabel(state.user.role))+'</span>'+
+            '<span class="avatar">'+esc(initial(state.user))+'</span>'+
+            '<span>'+esc(state.user.username)+'</span></div></div>'+
           '<div class="content" id="content"><div class="panel">در حال بارگذاری...</div></div>'+
         '</main>'+
       '</div>';
@@ -148,7 +179,7 @@
   }
   function loadRoute(routeId){
     var c = $('#content'); if(!c) return;
-    c.innerHTML = '<div class="panel">در حال بارگذاری...</div>';
+    c.innerHTML = '<div class="panel loading"><span class="spinner" aria-hidden="true"></span> در حال بارگذاری…</div>';
     var fn = {
       dashboard: viewDashboard, customers: viewCustomers, doctors: viewDoctors, operators: viewOperators,
       services: viewServices, invoices: viewInvoices, expenses: viewExpenses, revenue: viewRevenue,
@@ -177,7 +208,23 @@
         cards += card('خالص ماه', fmtMoney(d.month_net));
         cards += card('پورسانت قابل پرداخت', fmtMoney(d.commission_payable_total));
       }
-      $('#content').innerHTML = '<div class="grid cards">'+cards+'</div><div class="panel" style="margin-top:14px"><h2>خلاصه</h2><p class="muted">تاریخ امروز: '+esc(d.today||todayIso())+' | نقش: '+esc(roleLabel(state.user.role))+'</p><div class="alert info">ابتدا ساختار شیت‌ها (Setup)، تنظیم Script Properties (شناسه شیت و AUTH_PEPPER)، و در صورت نیاز ایجاد مدیر اولیه انجام شود. هیچ داده نمونه‌ای ایجاد نمی‌شود.</div></div>';
+      var quick = '';
+      [['customers','مشتریان'],['invoices','فاکتورها'],['services','خدمات'],['commissions','پورسانت‌ها'],['reports','گزارش‌ها']].forEach(function(x){
+        if (allowed(x[0])) quick += '<button class="btn secondary sm" data-go="'+x[0]+'">'+esc(x[1])+'</button>';
+      });
+      $('#content').innerHTML =
+        '<div class="grid cards">'+cards+'</div>'+
+        '<div class="panel" style="margin-top:var(--sp-4)">'+
+          '<div class="panel-header"><h2>خلاصه وضعیت</h2>'+
+            '<div class="row">'+
+              '<span class="badge">امروز: '+esc(todayLabel())+'</span>'+
+              '<span class="badge info">نقش: '+esc(roleLabel(state.user.role))+'</span>'+
+            '</div>'+
+          '</div>'+
+          '<div class="alert info">برای شروع، ابتدا ساختار شیت‌ها (Setup) را اجرا کنید، شناسه شیت و <b>AUTH_PEPPER</b> را در Script Properties تنظیم کنید و در صورت نیاز مدیر اولیه را ایجاد کنید. هیچ داده نمونه‌ای ایجاد نمی‌شود.</div>'+
+        '</div>'+
+        (quick ? '<div class="panel"><div class="panel-header"><h2>دسترسی سریع</h2></div><div class="row">'+quick+'</div></div>' : '');
+      $all('[data-go]').forEach(function(b){ b.onclick = function(){ navigate(b.getAttribute('data-go')); }; });
     });
   }
 
@@ -236,7 +283,7 @@
   function viewCommissions(){
     return api('commissions.list',{}).then(function(rows){
       var isAdmin = state.user.role==='admin';
-      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>پورسانت‌ها</h2><div class="toolbar">'+(isAdmin?'<button class="btn sm" id="approveSel">تأیید انتخاب‌شده‌ها (payable)</button><button class="btn gold sm" id="paySel">ثبت پرداخت انتخاب‌شده‌ها (paid)</button>':'')+'</div></div><div class="alert info">چرخه اجباری: <b>calculated → payable → paid</b>. گذار مستقیم calculated→paid مجاز نیست. فقط مدیر تأیید/پرداخت انجام می‌دهد و همه تغییرات در AuditLog ثبت می‌شود.</div><div class="table-wrap"><table><thead><tr>'+(isAdmin?'<th></th>':'')+'<th>فاکتور</th><th>ذینفع</th><th>مبنا</th><th>quantity</th><th>مبلغ</th><th>وضعیت</th><th>مرجع پرداخت</th></tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr>'+(isAdmin?'<td><input type="checkbox" class="csel" value="'+esc(r.id)+'" data-status="'+esc(r.status)+'"></td>':'')+'<td>'+esc(r.invoice_id)+'</td><td>'+esc(r.person_type+':'+r.person_id)+'</td><td>'+fmtMoney(r.commission_basis_toman)+'</td><td>'+esc(r.quantity)+'</td><td>'+fmtMoney(r.commission_amount_toman)+'</td><td>'+statusBadge(r.status)+'</td><td>'+esc(r.payment_reference||'')+'</td></tr>'; }).join('') +'</tbody></table></div></div>';
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>پورسانت‌ها</h2><div class="toolbar">'+(isAdmin?'<button class="btn sm" id="approveSel">تأیید انتخاب‌شده‌ها (payable)</button><button class="btn gold sm" id="paySel">ثبت پرداخت انتخاب‌شده‌ها (paid)</button>':'')+'</div></div><div class="alert info">چرخه اجباری: <b>calculated → payable → paid</b>. گذار مستقیم calculated→paid مجاز نیست. فقط مدیر تأیید/پرداخت انجام می‌دهد و همه تغییرات در AuditLog ثبت می‌شود.</div><div class="table-wrap"><table><thead><tr>'+(isAdmin?'<th></th>':'')+'<th>فاکتور</th><th>ذینفع</th><th>مبنا</th><th>تعداد</th><th>مبلغ</th><th>وضعیت</th><th>مرجع پرداخت</th></tr></thead><tbody>'+ (rows||[]).map(function(r){ return '<tr>'+(isAdmin?'<td><input type="checkbox" class="csel" value="'+esc(r.id)+'" data-status="'+esc(r.status)+'"></td>':'')+'<td>'+esc(r.invoice_id)+'</td><td>'+esc(r.person_type+':'+r.person_id)+'</td><td>'+fmtMoney(r.commission_basis_toman)+'</td><td>'+esc(r.quantity)+'</td><td>'+fmtMoney(r.commission_amount_toman)+'</td><td>'+statusBadge(r.status)+'</td><td>'+esc(r.payment_reference||'')+'</td></tr>'; }).join('') +'</tbody></table></div></div>';
       if(isAdmin){
         $('#approveSel').onclick=function(){ var ids=$all('.csel:checked').filter(function(x){return x.getAttribute('data-status')==='calculated';}).map(function(x){return x.value;}); if(!ids.length){toast('مورد calculated انتخاب نشده است','error'); return;} api('commissions.approvePayable',{ids:ids}).then(function(){toast('تأیید شد (payable)','success'); loadRoute('commissions');}).catch(function(e){toast(e.message||'خطا','error');}); };
         $('#paySel').onclick=function(){ var ids=$all('.csel:checked').filter(function(x){return x.getAttribute('data-status')==='payable';}).map(function(x){return x.value;}); if(!ids.length){toast('مورد payable انتخاب نشده است','error'); return;} var ref=prompt('مرجع/مدرک پرداخت واقعی:','')||''; api('commissions.markPaid',{ids:ids,payment_reference:ref}).then(function(){toast('پرداخت ثبت شد (paid)','success'); loadRoute('commissions');}).catch(function(e){toast(e.message||'خطا','error');}); };
@@ -275,7 +322,10 @@
     return Promise.all([api('invoices.list',{}), state.user.role==='doctor'?Promise.resolve([]):api('customers.list',{}), state.user.role==='doctor'?Promise.resolve([]):api('doctors.list',{}), state.user.role==='doctor'?Promise.resolve([]):api('services.list',{})]).then(function(res){
       var rows=res[0]||[], customers=res[1]||[], doctors=res[2]||[], services=res[3]||[];
       var canCreate = state.user.role==='admin' || state.user.role==='operator';
-      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>فاکتورها</h2><div class="toolbar">'+(canCreate?'<button class="btn gold sm" id="newInv">فاکتور جدید</button>':'')+'</div></div><div class="table-wrap"><table><thead><tr><th>شماره</th><th>تاریخ</th><th>مشتری</th><th>جمع</th><th>پرداخت</th><th>مانده</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>'+ rows.map(function(r){ return '<tr><td>'+esc(r.invoice_no||'-')+'</td><td>'+esc(r.invoice_date)+'</td><td>'+esc(r.customer_id)+'</td><td>'+fmtMoney(r.total_toman)+'</td><td>'+fmtMoney(r.paid_toman)+'</td><td>'+fmtMoney(r.balance_toman)+'</td><td>'+statusBadge(r.status)+'</td><td><button class="btn sm secondary" data-view="'+esc(r.id)+'">مشاهده</button></td></tr>'; }).join('') +'</tbody></table></div></div>';
+      var cName = {};
+      customers.forEach(function(c){ cName[String(c.id)] = c.full_name || ''; });
+      function money(n){ var v = Number(n||0); return v ? fmtMoney(v) : '<span class="muted">—</span>'; }
+      $('#content').innerHTML = '<div class="panel"><div class="panel-header"><h2>فاکتورها</h2><div class="toolbar">'+(canCreate?'<button class="btn gold sm" id="newInv">فاکتور جدید</button>':'')+'</div></div><div class="table-wrap"><table><thead><tr><th>شماره</th><th>تاریخ</th><th>مشتری</th><th>جمع</th><th>پرداخت</th><th>مانده</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>'+ rows.map(function(r){ return '<tr><td>'+esc(r.invoice_no||'-')+'</td><td>'+esc(r.invoice_date)+'</td><td>'+esc(cName[String(r.customer_id)]||'—')+'</td><td>'+fmtMoney(r.total_toman)+'</td><td>'+money(r.paid_toman)+'</td><td>'+money(r.balance_toman)+'</td><td>'+statusBadge(r.status)+'</td><td><button class="btn sm secondary" data-view="'+esc(r.id)+'">مشاهده</button></td></tr>'; }).join('') +'</tbody></table></div></div>';
       if(canCreate) $('#newInv').onclick=function(){ openInvoiceModal(null, customers, doctors, services); };
       $all('[data-view]').forEach(function(b){ b.onclick=function(){ openInvoiceDetail(b.getAttribute('data-view'), customers, doctors, services); }; });
     });
@@ -305,7 +355,7 @@
       if(isAdmin && inv.status!=='void') actions += '<button class="btn sm danger" id="actVoid">ابطال فاکتور</button> ';
       var html = '<h3>فاکتور '+esc(inv.invoice_no||inv.id)+'</h3><div class="row small muted"><div>وضعیت: '+statusBadge(inv.status)+'</div><div>تخفیف: '+statusBadge(inv.discount_status||'none')+'</div></div><hr class="sep">'+
         '<div class="form-grid"><div><label>تاریخ</label><div>'+esc(inv.invoice_date)+'</div></div><div><label>جمع جزء</label><div>'+fmtMoney(inv.subtotal_toman)+'</div></div><div><label>تخفیف</label><div>'+fmtMoney(inv.discount_toman)+'</div></div><div><label>مالیات</label><div>'+fmtMoney(inv.tax_toman)+'</div></div><div><label>مبلغ کل</label><div><b>'+fmtMoney(inv.total_toman)+'</b></div></div><div><label>پرداخت‌شده/مانده</label><div>'+fmtMoney(inv.paid_toman)+' / '+fmtMoney(inv.balance_toman)+'</div></div></div>'+
-        '<h4>آیتم‌ها</h4><div class="table-wrap"><table><thead><tr><th>خدمت</th><th>quantity</th><th>مبلغ واحد</th><th>ناخالص</th><th>سهم تخفیف</th><th>مالیات</th><th>مبلغ خط</th></tr></thead><tbody>'+items.map(function(it){return '<tr><td>'+esc(it.service_name_snapshot||it.description||it.service_id)+'</td><td>'+esc(it.quantity)+'</td><td>'+fmtMoney(it.unit_price_toman)+'</td><td>'+fmtMoney(it.line_gross_toman)+'</td><td>'+fmtMoney(it.line_discount_alloc_toman)+'</td><td>'+fmtMoney(it.line_tax_toman)+'</td><td>'+fmtMoney(it.line_total_toman)+'</td></tr>';}).join('')+'</tbody></table></div>'+
+        '<h4>آیتم‌ها</h4><div class="table-wrap"><table><thead><tr><th>خدمت</th><th>تعداد</th><th>مبلغ واحد</th><th>ناخالص</th><th>سهم تخفیف</th><th>مالیات</th><th>مبلغ خط</th></tr></thead><tbody>'+items.map(function(it){return '<tr><td>'+esc(it.service_name_snapshot||it.description||it.service_id)+'</td><td>'+esc(it.quantity)+'</td><td>'+fmtMoney(it.unit_price_toman)+'</td><td>'+fmtMoney(it.line_gross_toman)+'</td><td>'+fmtMoney(it.line_discount_alloc_toman)+'</td><td>'+fmtMoney(it.line_tax_toman)+'</td><td>'+fmtMoney(it.line_total_toman)+'</td></tr>';}).join('')+'</tbody></table></div>'+
         '<h4>پرداخت‌ها</h4><div class="table-wrap"><table><thead><tr><th>تاریخ</th><th>مبلغ</th><th>روش</th><th>مرجع</th></tr></thead><tbody>'+pays.map(function(p){return '<tr><td>'+esc(p.payment_date)+'</td><td>'+fmtMoney(p.amount_toman)+'</td><td>'+esc(p.method)+'</td><td>'+esc(p.reference_no)+'</td></tr>';}).join('')+'</tbody></table></div>'+
         '<div class="row" style="margin-top:12px">'+actions+'<button class="btn secondary sm" id="actClose">بستن</button></div>';
       showModal(html, function(close){
@@ -321,11 +371,24 @@
 
   function showModal(content, onBind){
     var root = document.createElement('div');
-    root.className='modal-backdrop';
-    root.innerHTML='<div class="modal">'+content+'</div>';
+    root.className = 'modal-backdrop';
+    root.innerHTML = '<div class="modal" role="dialog" aria-modal="true">'+content+'</div>';
     document.body.appendChild(root);
-    function close(){ try{document.body.removeChild(root);}catch(e){} }
+    document.body.classList.add('modal-open');
+
+    function onKey(e){ if(e.key === 'Escape'){ close(); } }
+    function close(){
+      try{ document.body.removeChild(root); }catch(e){}
+      document.body.classList.remove('modal-open');
+      document.removeEventListener('keydown', onKey);
+    }
+
+    document.addEventListener('keydown', onKey);
     root.addEventListener('click', function(e){ if(e.target===root) close(); });
+    try{
+      var first = root.querySelector('input,select,textarea');
+      if(first) first.focus();
+    }catch(e){}
     onBind(close, root);
   }
 
