@@ -17,7 +17,7 @@
   <div id="app">
     <div class="splash" id="splash">
       <div class="splash-inner">
-        <div class="splash-logo"><?!= include('Client_Logo'); ?></div>
+        <div class="splash-logo"><?!= include('Client_LogoMark'); ?></div>
         <h1>ROSE SEFID BEAUTY CLINIC</h1>
         <p>در حال بارگذاری...</p>
       </div>
@@ -25,6 +25,7 @@
   </div>
   <script>
     var WRC_LOGO_HTML = <?!= JSON.stringify(include('Client_Logo')) ?>;
+    var WRC_LOGO_MARK_HTML = <?!= JSON.stringify(include('Client_LogoMark')) ?>;
   </script>
   <?!= include('Client_App'); ?>
 </body>

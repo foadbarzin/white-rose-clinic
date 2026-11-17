@@ -39,7 +39,7 @@ $env:PORT=8899; $env:PREVIEW_ADMIN_PASSWORD='YourDemoPass#1'; npm run preview
 - در داده نمونه کاربران `operator1` و `doctor1` هم وجود دارند.
 
 ## چه چیزی واقعی است؟
-- `src/Client_Index.html`, `Client_App.html`, `Client_Styles.html`, `Client_Logo.html` بدون تغییر سرو می‌شوند؛ قالب‌ها (`include` / `JSON.stringify`) همانند `doGet` ارزیابی می‌شوند.
+- `src/Client_Index.html`, `Client_App.html`, `Client_Styles.html`, `Client_Logo.html`, `Client_LogoMark.html` بدون تغییر سرو می‌شوند؛ قالب‌ها (`include` / `JSON.stringify`) همانند `doGet` ارزیابی می‌شوند.
 - تمام فایل‌های `.gs` بارگذاری و اجرا می‌شوند: احراز هویت، نشست، مجوزها، مشتریان، فاکتور، تخفیف، پرداخت، پورسانت، هزینه/درآمد، گزارش‌ها و AuditLog.
 
 ## چه چیزی شبیه‌سازی می‌شود؟

@@ -3,7 +3,7 @@
 ## Brand
 - Official name: **ROSE SEFID BEAUTY CLINIC**
 - Logo concept (as specified): metallic gold rose, face profile, stethoscope. Logo files are stored in `src/assets/` and must not be replaced with generic logos.
-- Reference images: not present in repository workspace; **پیش‌فرض اجرایی**: SVG brand mark created from specified elements and palette, replaceable with official provided files.
+- Reference images: official artwork supplied by the clinic (gold rose bud, face profile and stethoscope on deep green). The vector implementation lives in `src/assets/logo.svg` and mirrors `src/Client_LogoMark.html`; the full lockup (wordmark) is `src/Client_Logo.html`.
 
 ## Color tokens (پیش‌فرض اجرایی - extracted from described palette)
 - `--color-gold`: #C9A227 (metallic gold base)
