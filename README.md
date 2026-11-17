@@ -65,6 +65,14 @@ Clinic Management System
 - شناسه واقعی Apps Script/Spreadsheet، توکن‌ها و رمزها در فایل‌های نسخه‌بندی‌شده ثبت نمی‌شوند.
 - `.clasp.json.example` فقط الگو است؛ مقدار واقعی باید به‌صورت محلی تنظیم شود.
 
+## پیش‌نمایش محلی (بدون نیاز به Google Apps Script)
+- اجرا: `npm run preview` → پیش‌فرض `http://127.0.0.1:8787`
+- بررسی سلامت محیط پیش‌نمایش: `npm run preview:check`
+- رابط کاربری (HTML/CSS/JS) و منطق سرور (`.gs`) **همان فایل‌های واقعی پروژه** هستند؛ فقط سرویس‌های Google Apps Script (Spreadsheet/Cache/Lock/Properties/Utilities) در حافظه شبیه‌سازی می‌شوند.
+- داده نمونه فقط در حافظه است و با هر بار اجرا بازنشانی می‌شود؛ هیچ داده‌ای در پروژه یا Google Sheets ایجاد نمی‌کند.
+- مستندات کامل: [docs/preview.md](./docs/preview.md)
+- این محیط در `.claspignore` قرار دارد (`tools/**`) و هرگز با `clasp push` منتشر نمی‌شود.
+
 ## مراحل بعد (نیازمند تأیید جداگانه)
 1. بررسی نهایی فایل‌های فاز یک و ثبت commit (در صورت تأیید).
 2. ارسال به GitHub (در صورت تأیید).

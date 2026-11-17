@@ -35,3 +35,7 @@ desktop.ini
 temp/
 dist/
 coverage/
+
+# Local preview runtime artifacts
+tools/preview/*.log
+tools/preview/screenshots/

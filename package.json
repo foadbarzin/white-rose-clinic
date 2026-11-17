@@ -9,6 +9,8 @@
     "clasp:pull": "clasp pull",
     "clasp:version": "clasp version",
     "clasp:deploy": "clasp deploy",
+    "preview": "node tools/preview/server.js",
+    "preview:check": "node tools/preview/self-check.js",
     "lint": "echo \"No lint configured in phase 1\"",
     "format": "echo \"No formatter configured in phase 1\""
   },
