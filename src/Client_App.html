@@ -68,6 +68,50 @@
       return new Date(String(key) + 'T00:00:00').toLocaleDateString('fa-IR', { month:'2-digit', day:'2-digit' });
     } catch(e){ return String(key || ''); }
   }
+  /* ---- version chip ---- */
+  function applyVersion(v){
+    if (v) state.appVersion = String(v);
+    if (!state.appVersion) return;
+    var label = 'v' + state.appVersion;
+    $all('.js-app-version').forEach(function(el){ el.textContent = label; });
+  }
+  /* ---- smart insights ---- */
+  function deltaChip(label, pct, goodWhenUp){
+    if (pct === undefined) return '';
+    var v = (pct === null) ? null : Number(pct);
+    var cls = 'flat', arrow = '•', txt = '—';
+    if (v === null) { txt = 'جدید'; }
+    else {
+      txt = Math.abs(v).toLocaleString('fa-IR') + '٪';
+      if (v > 0) { arrow = '▲'; cls = goodWhenUp ? 'good' : 'bad'; }
+      else if (v < 0) { arrow = '▼'; cls = goodWhenUp ? 'bad' : 'good'; }
+    }
+    return '<span class="delta ' + cls + '">' + esc(label) + ' <span class="arrow">' + arrow + '</span> ' + txt + '</span>';
+  }
+  function insightsHtml(ins){
+    if (!ins) return '';
+    var alerts = (ins.alerts || []).map(function(a){
+      var amount = Number(a.amount || 0);
+      return '<li class="insight ' + esc(a.level || 'info') + '">' + esc(a.text) + (amount ? ' <b>' + fmtMoney(amount) + '</b>' : '') + '</li>';
+    }).join('');
+    var tops = (ins.top_services || []).map(function(s){
+      return '<li class="insight top">' + esc(s.name) + ' <span class="muted small">(' + fmtNum(s.quantity) + ' مورد)</span> <b>' + fmtMoney(s.amount) + '</b></li>';
+    }).join('');
+    return '<div class="insights">' +
+      '<div class="insights-head">' +
+        '<span class="insights-title">تحلیل هوشمند</span>' +
+        '<span class="insights-deltas">' +
+          deltaChip('درآمد', ins.deltas && ins.deltas.income, true) +
+          deltaChip('هزینه', ins.deltas && ins.deltas.expense, false) +
+          deltaChip('خالص', ins.deltas && ins.deltas.net, true) +
+        '</span>' +
+      '</div>' +
+      '<ul class="insight-list">' + alerts + '</ul>' +
+      (tops ? '<div class="insight-block"><div class="insight-block-title">پرفروش‌ترین خدمات بازه</div><ul class="insight-list">' + tops + '</ul></div>' : '') +
+      (ins.best_day ? '<div class="insight-note">بهترین روز بازه: <b>' + esc(ins.best_day.label) + '</b> با ' + fmtMoney(ins.best_day.income) + ' درآمد</div>' : '') +
+      '<div class="insight-note muted small">مقایسه با بازه قبل: ' + esc(faDate(ins.previous_from || '')) + ' تا ' + esc(faDate(ins.previous_to || '')) + '</div>' +
+    '</div>';
+  }
   /* Lightweight inline SVG chart (no external libraries - works inside Apps Script). */
   function chartSvg(d){
     var buckets = (d && d.buckets) || [];
@@ -176,19 +220,19 @@
   var routes = [
     {id:'dashboard', title:'داشبورد', roles:['admin','operator','doctor']},
     {id:'customers', title:'مشتریان', roles:['admin','operator','doctor']},
-    {id:'operations', title:'عملیات', roles:['admin','operator'], children:[
-      {id:'doctors', title:'تعریف پزشک', roles:['admin','operator']},
-      {id:'operators', title:'تعریف اپراتور', roles:['admin','operator']},
-      {id:'services', title:'تعریف خدمات', roles:['admin','operator']},
-      {id:'commissionRules', title:'تعریف پورسانت', roles:['admin']}
-    ]},
     {id:'invoices', title:'ثبت فاکتور', roles:['admin','operator','doctor']},
-    {id:'expenses', title:'هزینه‌ها', roles:['admin','operator']},
     {id:'revenue', title:'درآمدهای متفرقه', roles:['admin']},
     {id:'commissions', title:'پورسانت‌ها', roles:['admin','doctor']},
     {id:'reports', title:'گزارش‌ها', roles:['admin','operator']},
     {id:'users', title:'کاربران', roles:['admin']},
-    {id:'settings', title:'تنظیمات', roles:['admin']}
+    {id:'settings', title:'تنظیمات', roles:['admin']},
+    {id:'operations', title:'عملیات', roles:['admin','operator'], pinned:true, children:[
+      {id:'doctors', title:'تعریف پزشک', roles:['admin','operator']},
+      {id:'operators', title:'تعریف اپراتور', roles:['admin','operator']},
+      {id:'services', title:'تعریف خدمات', roles:['admin','operator']},
+      {id:'commissionRules', title:'تعریف پورسانت', roles:['admin']},
+      {id:'expenses', title:'هزینه‌ها', roles:['admin','operator']}
+    ]}
   ];
 
   function routeMeta(routeId){
@@ -211,13 +255,15 @@
   }
   function render(){
     var app = $('#app');
-    if(!state.token || !state.user){ renderLogin(app); return; }
+    if(!state.token || !state.user){ renderLogin(app); applyVersion(); return; }
     renderShell(app);
+    applyVersion();
   }
 
   function renderLogin(app){
     app.innerHTML =
       '<div class="login-wrap"><div class="login-card">'+
+      '<div class="login-watermark" aria-hidden="true">'+logoMarkHtml()+'</div>'+
       '<div class="login-brand"><div class="logo lockup">'+logoHtml()+'</div><p>سامانه مدیریت کلینیک رز سفید</p></div>'+
       '<div id="loginAlert"></div>'+
       '<div class="form-group"><label>نام کاربری</label><input id="loginUser" autocomplete="username"></div>'+
@@ -229,7 +275,7 @@
       '<div class="form-group"><label>نام نمایشی</label><input id="bootName" value="مدیر سیستم"></div>'+
       '<button class="btn secondary sm block" id="bootBtn">ایجاد مدیر اولیه</button>'+
       '</details>'+
-      '<div class="login-hint"><span>ورود با نام کاربری و رمز عبور</span><span>نسخه ۰.۲</span></div>'+
+      '<div class="login-hint"><span>ورود با نام کاربری و رمز عبور</span><span class="js-app-version">—</span></div>'+
       '</div></div>';
     $('#loginBtn').onclick = doLogin;
     $('#bootBtn').onclick = doBootstrap;
@@ -243,7 +289,7 @@
         var kids = r.children.filter(function(c){ return allowed(c.id); });
         if (!kids.length) return '';
         var open = kids.some(function(c){ return c.id === state.route; });
-        return '<div class="nav-group'+(open ? ' open' : '')+'">'+
+        return '<div class="nav-group'+(open ? ' open' : '')+(r.pinned ? ' pinned' : '')+'">'+
           '<button type="button" class="nav-group-head">'+
             '<span>'+esc(r.title)+'</span><span class="chev" aria-hidden="true">▾</span>'+
           '</button>'+
@@ -265,6 +311,7 @@
               '<span class="user-meta"><span class="user-name">'+esc(state.user.display_name||state.user.username)+'</span>'+
               '<span class="user-role">'+esc(roleLabel(state.user.role))+'</span></span></div>'+
             '<button class="btn secondary sm block" id="logoutBtn">خروج</button>'+
+            '<div class="version-row"><span class="version-chip">نسخه <span class="js-app-version">—</span></span></div>'+
           '</div>'+
         '</aside>'+
         '<main class="main">'+
@@ -351,10 +398,12 @@
     var r0 = dashRange();
     return Promise.all([
       api('reports.period', { from: r0.from, to: r0.to, granularity: r0.granularity }),
-      api('reports.dashboard', {}).catch(function(){ return {}; })
+      api('reports.dashboard', {}).catch(function(){ return {}; }),
+      api('reports.insights', { from: r0.from, to: r0.to }).catch(function(){ return null; })
     ]).then(function(res){
       var d = res[0] || {};
       var k = res[1] || {};
+      var ins = res[2] || null;
       var t = d.totals || {};
       var cards = '';
       if (state.user.role === 'doctor') {
@@ -406,6 +455,7 @@
             '</div>'+
             chartSvg(d)+
           '</div>'+
+          (ins ? insightsHtml(ins) : '')+
         '</div>'+
         '<div class="panel"><div class="panel-header"><h2>خلاصه وضعیت</h2>'+
           '<div class="row">'+
@@ -600,11 +650,15 @@
   }
 
   function boot(){
-    if(state.token){
-      api('auth.me',{}).then(function(d){ state.user = d.user; render(); }).catch(function(){ setToken(''); state.user=null; render(); });
-    } else {
-      api('system.ping',{}).then(function(){ render(); }).catch(function(){ render(); });
-    }
+    api('system.ping', {}).then(function(r){
+      if (r && r.app) applyVersion(r.app.VERSION);
+    }).catch(function(){}).then(function(){
+      if(state.token){
+        api('auth.me',{}).then(function(d){ state.user = d.user; render(); }).catch(function(){ setToken(''); state.user=null; render(); });
+      } else {
+        render();
+      }
+    });
   }
 
   boot();

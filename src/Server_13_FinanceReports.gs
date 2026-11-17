@@ -238,5 +238,96 @@ WRC.ReportsSvc = (function(){
     };
   }
 
-  return { dashboard: dashboard, summary: summary, period: period };
+  function insights(payload, ctx) {
+    payload = payload || {};
+    var cur = period(payload, ctx);
+
+    var fromD = toDay(cur.from), toD = toDay(cur.to);
+    var span = Math.round((toD.getTime() - fromD.getTime()) / 86400000) + 1;
+    var prevTo = addDays(fromD, -1);
+    var prevFrom = addDays(prevTo, -(span - 1));
+    var prev = period({ from: dayStr(prevFrom), to: dayStr(prevTo), granularity: cur.granularity }, ctx);
+
+    function change(a, b) {
+      a = Number(a || 0); b = Number(b || 0);
+      if (!b) return a ? null : 0;   // null means "no baseline to compare"
+      return Math.round(((a - b) / Math.abs(b)) * 1000) / 10;
+    }
+
+    var deltas = {
+      income: change(cur.totals.income, prev.totals.income),
+      expense: change(cur.totals.expense, prev.totals.expense),
+      net: change(cur.totals.net, prev.totals.net),
+      invoices_count: change(cur.totals.invoices_count, prev.totals.invoices_count)
+    };
+
+    var bestDay = null;
+    (cur.buckets || []).forEach(function (b) {
+      if (!bestDay || Number(b.income) > Number(bestDay.income)) bestDay = b;
+    });
+    if (bestDay && !Number(bestDay.income)) bestDay = null;
+
+    var itemsByInvoice = {};
+    WRC.SheetRepo.readAll(WRC.Config.SHEET_NAMES.INVOICE_ITEMS).forEach(function (it) {
+      var k = String(it.invoice_id || '');
+      (itemsByInvoice[k] = itemsByInvoice[k] || []).push(it);
+    });
+
+    var topMap = {}, unpaidCount = 0, unpaidAmount = 0, pendingDiscount = 0;
+    WRC.SheetRepo.readAll(WRC.Config.SHEET_NAMES.INVOICES).forEach(function (i) {
+      if (String(i.status) === WRC.Config.INVOICE_STATUS.VOID) return;
+      var d = toDay(i.invoice_date);
+      if (!d || d.getTime() < fromD.getTime() || d.getTime() > toD.getTime()) return;
+
+      if (String(i.status) === WRC.Config.INVOICE_STATUS.PENDING_DISCOUNT_APPROVAL) pendingDiscount++;
+      if ((String(i.status) === WRC.Config.INVOICE_STATUS.ISSUED || String(i.status) === WRC.Config.INVOICE_STATUS.PARTIALLY_PAID) &&
+          WRC.Utils.toMoneyInt(i.balance_toman) > 0) {
+        unpaidCount++;
+        unpaidAmount += WRC.Utils.toMoneyInt(i.balance_toman);
+      }
+
+      (itemsByInvoice[String(i.id)] || []).forEach(function (it) {
+        var key = String(it.service_name_snapshot || it.description || it.service_id || 'سایر');
+        var rec = topMap[key] || (topMap[key] = { name: key, amount: 0, quantity: 0 });
+        rec.amount += WRC.Utils.toMoneyInt(it.line_total_toman);
+        rec.quantity += WRC.Utils.toMoneyInt(it.quantity);
+      });
+    });
+
+    var topServices = Object.keys(topMap).map(function (k) { return topMap[k]; })
+      .sort(function (a, b) { return b.amount - a.amount; })
+      .slice(0, 3);
+
+    var alerts = [];
+    var t = cur.totals;
+    if (Number(t.net) < 0) {
+      alerts.push({ level: 'danger', text: 'خالص این بازه منفی است (زیان).', amount: Math.abs(Number(t.net)) });
+    }
+    if (Number(t.income) > 0 && (Number(t.expense) / Number(t.income)) > 0.6) {
+      alerts.push({ level: 'warn', text: 'هزینه‌ها بیش از ۶۰٪ درآمد این بازه است.', amount: Number(t.expense) });
+    }
+    if (unpaidCount) {
+      alerts.push({ level: 'warn', text: unpaidCount + ' فاکتور دارای مانده پرداخت‌نشده در این بازه است.', amount: unpaidAmount });
+    }
+    if (pendingDiscount) {
+      alerts.push({ level: 'info', text: pendingDiscount + ' درخواست تخفیف در انتظار تأیید مدیر است.', amount: 0 });
+    }
+    if (deltas.income !== null && deltas.income <= -20) {
+      alerts.push({ level: 'warn', text: 'درآمد نسبت به بازه قبل افت محسوس داشته است.', amount: 0 });
+    }
+    if (!alerts.length) {
+      alerts.push({ level: 'ok', text: 'همه‌چیز در محدوده طبیعی است؛ موردی برای هشدار نیست.', amount: 0 });
+    }
+
+    return {
+      from: cur.from, to: cur.to, previous_from: dayStr(prevFrom), previous_to: dayStr(prevTo),
+      current: cur.totals, previous: prev.totals, deltas: deltas,
+      best_day: bestDay ? { key: bestDay.key, label: bucketLabel(bestDay.key, cur.granularity), income: bestDay.income } : null,
+      top_services: topServices,
+      unpaid_count: unpaidCount, unpaid_amount: unpaidAmount, pending_discount: pendingDiscount,
+      alerts: alerts
+    };
+  }
+
+  return { dashboard: dashboard, summary: summary, period: period, insights: insights };
 })();

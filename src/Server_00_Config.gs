@@ -71,7 +71,7 @@ WRC.Config = (function() {
   var APP = {
     NAME: 'ROSE SEFID BEAUTY CLINIC',
     SHORT_NAME: 'White Rose Clinic V2',
-    VERSION: '0.2.0',
+    VERSION: '0.3.0',
     TIMEZONE: 'Asia/Tehran',
     CURRENCY: 'IRT',
     CURRENCY_LABEL: 'تومان'

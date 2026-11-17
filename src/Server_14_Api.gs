@@ -85,6 +85,7 @@ WRC.Api = (function(){
       case 'reports.dashboard': return WRC.ReportsSvc.dashboard(ctx);
       case 'reports.summary': return WRC.ReportsSvc.summary(ctx);
       case 'reports.period': return WRC.ReportsSvc.period(payload, ctx);
+      case 'reports.insights': return WRC.ReportsSvc.insights(payload, ctx);
 
       case 'setup.run': WRC.Permissions.assert('settings.manage', ctx.user); WRC.Schema.setupAll(ctx.user.id); return { ok:true };
 
